@@ -9,7 +9,6 @@ import Home from './pages/Home'
 import Login from './pages/Login'
 import Register from './pages/Register'
 import Timeline from './pages/Timeline'
-import { initializeDemoStorage } from './utils/storage'
 
 type RouteConfig = {
   path: string
@@ -42,8 +41,6 @@ function App() {
   )
 
   useEffect(() => {
-    initializeDemoStorage()
-
     const handlePopState = () => {
       setCurrentPath(normalizePath(window.location.pathname))
     }
