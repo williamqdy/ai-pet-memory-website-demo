@@ -1,121 +1,113 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
-import './App.css'
+import { useEffect, useState } from 'react'
+import type { ComponentType, MouseEvent } from 'react'
+import Album from './pages/Album'
+import CreatePet from './pages/CreatePet'
+import Diary from './pages/Diary'
+import GrowthRecords from './pages/GrowthRecords'
+import Home from './pages/Home'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import Timeline from './pages/Timeline'
+import { initializeDemoStorage } from './utils/storage'
+
+type RouteConfig = {
+  path: string
+  label: string
+  Component: ComponentType
+}
+
+const appRoutes: RouteConfig[] = [
+  { path: '/login', label: 'Login', Component: Login },
+  { path: '/register', label: 'Register', Component: Register },
+  { path: '/create-pet', label: 'CreatePet', Component: CreatePet },
+  { path: '/home', label: 'Home', Component: Home },
+  { path: '/timeline', label: 'Timeline', Component: Timeline },
+  { path: '/album', label: 'Album', Component: Album },
+  { path: '/diary', label: 'Diary', Component: Diary },
+  { path: '/growth-records', label: 'GrowthRecords', Component: GrowthRecords },
+]
+
+const normalizePath = (pathname: string) => {
+  const trimmedPath = pathname.replace(/\/+$/, '')
+
+  return trimmedPath === '' ? '/login' : trimmedPath
+}
 
 function App() {
-  const [count, setCount] = useState(0)
+  const [currentPath, setCurrentPath] = useState(() =>
+    normalizePath(window.location.pathname),
+  )
+
+  useEffect(() => {
+    initializeDemoStorage()
+
+    const handlePopState = () => {
+      setCurrentPath(normalizePath(window.location.pathname))
+    }
+
+    window.addEventListener('popstate', handlePopState)
+
+    return () => {
+      window.removeEventListener('popstate', handlePopState)
+    }
+  }, [])
+
+  const currentRoute =
+    appRoutes.find((route) => route.path === currentPath) ?? appRoutes[0]
+  const CurrentPage = currentRoute.Component
+
+  const handleRouteClick = (
+    event: MouseEvent<HTMLAnchorElement>,
+    path: string,
+  ) => {
+    event.preventDefault()
+
+    if (path !== currentPath) {
+      window.history.pushState(null, '', path)
+      setCurrentPath(path)
+    }
+  }
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
+    <main className="min-h-screen bg-orange-50 px-6 py-8 text-stone-800">
+      <div className="mx-auto flex max-w-5xl flex-col gap-6 rounded-3xl bg-white/80 p-6 shadow-sm">
+        <header className="space-y-2">
+          <p className="text-sm font-medium text-orange-500">AI宠物记忆空间</p>
+          <h1 className="text-3xl font-bold">Phase 1 Basic Project Structure</h1>
+          <p className="max-w-3xl text-sm leading-6 text-stone-600">
+            Placeholder routes, shared data types, mock data, and localStorage
+            helpers are ready for later UI phases.
           </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
+        </header>
+
+        <nav
+          aria-label="Phase 1 route preview"
+          className="flex flex-wrap gap-2 border-y border-orange-100 py-4"
         >
-          Count is {count}
-        </button>
-      </section>
+          {appRoutes.map((route) => {
+            const isActive = route.path === currentRoute.path
 
-      <div className="ticks"></div>
+            return (
+              <a
+                aria-current={isActive ? 'page' : undefined}
+                className={`rounded-full px-4 py-2 text-sm font-medium transition ${
+                  isActive
+                    ? 'bg-orange-500 text-white'
+                    : 'bg-orange-100 text-orange-700 hover:bg-orange-200'
+                }`}
+                href={route.path}
+                key={route.path}
+                onClick={(event) => handleRouteClick(event, route.path)}
+              >
+                {route.label}
+              </a>
+            )
+          })}
+        </nav>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        <CurrentPage />
+      </div>
+    </main>
   )
 }
 
