@@ -107,7 +107,7 @@ function App() {
   }
 
   return (
-    <main className="min-h-screen bg-orange-50 px-6 py-8 text-stone-800">
+    <main className="min-h-screen bg-orange-50 text-stone-800">
       <CurrentPage />
     </main>
   )
