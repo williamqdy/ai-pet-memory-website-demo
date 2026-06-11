@@ -19,6 +19,7 @@ export const mockPet: Pet = {
   type: 'cat',
   breed: '布偶猫',
   sex: 'female',
+  neuteredStatus: 'not_neutered',
   avatar: '',
   status: 'active',
   birthday: '2023-05-20',

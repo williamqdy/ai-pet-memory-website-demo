@@ -4,6 +4,8 @@ export type PetType = 'cat' | 'dog'
 
 export type PetSex = 'male' | 'female'
 
+export type PetNeuteredStatus = 'neutered' | 'not_neutered'
+
 export type User = {
   id: string
   username: string
@@ -16,6 +18,7 @@ export type Pet = {
   type: PetType
   breed: string
   sex: PetSex
+  neuteredStatus: PetNeuteredStatus
   avatar: string
   status: PetStatus
   birthday: string
