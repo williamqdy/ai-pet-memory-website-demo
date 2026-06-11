@@ -30,6 +30,11 @@ type OptionCardTone = {
 
 type DateField = 'birthday' | 'arrival' | 'memorial'
 
+type CreatePetProfile = Pet & {
+  modelReferenceImageUrl?: string
+  modelReferenceImages?: string[]
+}
+
 const sexOptions: Array<{ label: string; value: PetSex }> = [
   { label: '男孩', value: 'male' },
   { label: '女孩', value: 'female' },
@@ -42,6 +47,9 @@ const neuteredStatusOptions: Array<{
   { label: '已绝育', value: 'neutered' },
   { label: '未绝育', value: 'not_neutered' },
 ]
+
+const allowedImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const maxModelReferenceImages = 3
 
 type CalendarPopoverProps = {
   anchorRef: RefObject<HTMLDivElement | null>
@@ -232,6 +240,8 @@ const getCalendarDays = (viewDate: Date) => {
   return days
 }
 
+const getYearPageStart = (year: number) => Math.floor(year / 12) * 12
+
 const createPetThemes = {
   active: {
     accentLightText: 'text-orange-400',
@@ -321,13 +331,22 @@ const CalendarPopover = ({
   const [viewDate, setViewDate] = useState(
     () => new Date(selected.getFullYear(), selected.getMonth(), 1),
   )
+  const [viewMode, setViewMode] = useState<'date' | 'year'>('date')
+  const [yearPageStart, setYearPageStart] = useState(() =>
+    getYearPageStart(selected.getFullYear()),
+  )
   const [position, setPosition] = useState<{
     left: number
     top: number
     width: number
   } | null>(null)
   const calendarDays = getCalendarDays(viewDate)
+  const visibleYears = Array.from({ length: 12 }, (_, index) => yearPageStart + index)
   const weekdays = ['一', '二', '三', '四', '五', '六', '日']
+  const hoverSoft =
+    theme === createPetThemes.active
+      ? 'hover:bg-orange-100 hover:text-orange-700'
+      : 'hover:bg-purple-100 hover:text-purple-700'
 
   useLayoutEffect(() => {
     const updatePosition = () => {
@@ -370,7 +389,7 @@ const CalendarPopover = ({
     return () => {
       window.removeEventListener('resize', updatePosition)
     }
-  }, [anchorRef, popoverRef, viewDate])
+  }, [anchorRef, popoverRef, viewDate, viewMode])
 
   const goToMonth = (offset: number) => {
     setViewDate(
@@ -378,9 +397,19 @@ const CalendarPopover = ({
     )
   }
 
+  const goToYearPage = (offset: number) => {
+    setYearPageStart((year) => year + offset * 12)
+  }
+
+  const selectYear = (year: number) => {
+    setViewDate((date) => new Date(year, date.getMonth(), 1))
+    setYearPageStart(getYearPageStart(year))
+    setViewMode('date')
+  }
+
   return (
     <div
-      className="fixed z-[70] w-[320px] max-w-[calc(100vw-32px)] origin-right overflow-hidden rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_44px_rgba(87,66,40,0.18)] backdrop-blur"
+      className="fixed z-[70] flex h-[352px] w-[320px] max-w-[calc(100vw-32px)] origin-right flex-col overflow-hidden rounded-[24px] border border-white/80 bg-white/90 p-4 shadow-[0_18px_44px_rgba(87,66,40,0.18)] backdrop-blur"
       ref={popoverRef}
       style={{
         animation:
@@ -392,25 +421,50 @@ const CalendarPopover = ({
         width: position ? `${position.width}px` : undefined,
       }}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex h-9 shrink-0 items-center justify-between">
         <button
           className={`flex h-9 w-9 items-center justify-center rounded-full ${theme.chipInactive} text-lg font-black transition hover:bg-white`}
           onClick={(event) => {
             event.stopPropagation()
-            goToMonth(-1)
+            if (viewMode === 'year') {
+              goToYearPage(-1)
+            } else {
+              goToMonth(-1)
+            }
           }}
           type="button"
         >
           ‹
         </button>
-        <p className="text-sm font-black text-stone-900">
-          {viewDate.getFullYear()}年{viewDate.getMonth() + 1}月
-        </p>
+        {viewMode === 'year' ? (
+          <p className="text-sm font-black text-stone-900">
+            {yearPageStart} - {yearPageStart + 11}
+          </p>
+        ) : (
+          <p className="flex items-center justify-center gap-1 text-sm font-black text-stone-900">
+            <button
+              className={`cursor-pointer rounded-full px-3 py-1 transition duration-200 ease-out ${theme.accentText} ${hoverSoft}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                setYearPageStart(getYearPageStart(viewDate.getFullYear()))
+                setViewMode('year')
+              }}
+              type="button"
+            >
+              {viewDate.getFullYear()}年
+            </button>
+            <span>{viewDate.getMonth() + 1}月</span>
+          </p>
+        )}
         <button
           className={`flex h-9 w-9 items-center justify-center rounded-full ${theme.chipInactive} text-lg font-black transition hover:bg-white`}
           onClick={(event) => {
             event.stopPropagation()
-            goToMonth(1)
+            if (viewMode === 'year') {
+              goToYearPage(1)
+            } else {
+              goToMonth(1)
+            }
           }}
           type="button"
         >
@@ -418,43 +472,80 @@ const CalendarPopover = ({
         </button>
       </div>
 
-      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-black text-stone-400">
-        {weekdays.map((weekday) => (
-          <span key={weekday}>{weekday}</span>
-        ))}
-      </div>
+      <div
+        className="min-h-0 flex-1 transition-all duration-200 ease-out"
+        key={viewMode}
+        style={{
+          animation:
+            'createPetCalendarViewIn 220ms cubic-bezier(0.22, 1, 0.36, 1) both',
+        }}
+      >
+        {viewMode === 'year' ? (
+          <div className="grid h-full grid-cols-3 grid-rows-4 gap-2.5">
+            {visibleYears.map((year) => (
+              <button
+                className={`flex h-full min-h-[52px] transform-gpu cursor-pointer items-center justify-center rounded-[18px] text-sm font-black transition duration-150 ease-out active:scale-[0.97] ${
+                  year === viewDate.getFullYear()
+                    ? theme.chipActive
+                    : `text-stone-600 ${hoverSoft}`
+                }`}
+                key={year}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  selectYear(year)
+                }}
+                type="button"
+              >
+                {year}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <>
+            <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-black text-stone-400">
+              {weekdays.map((weekday) => (
+                <span key={weekday}>{weekday}</span>
+              ))}
+            </div>
 
-      <div className="mt-2 grid grid-cols-7 gap-1">
-        {calendarDays.map((day, index) =>
-          day ? (
-            <button
-              className={`h-9 rounded-full text-sm font-black transition duration-200 ease-out ${
-                selected.getFullYear() === viewDate.getFullYear() &&
-                selected.getMonth() === viewDate.getMonth() &&
-                selected.getDate() === day
-                  ? theme.chipActive
-                  : today.getFullYear() === viewDate.getFullYear() &&
-                      today.getMonth() === viewDate.getMonth() &&
-                      today.getDate() === day
-                    ? `border ${theme.inputAccent} bg-white/60 ${theme.accentText}`
-                    : 'text-stone-600 hover:bg-white hover:text-stone-900'
-              }`}
-              key={`${viewDate.getFullYear()}-${viewDate.getMonth()}-${day}`}
-              onClick={(event) => {
-                event.stopPropagation()
-                onSelect(
-                  formatDateForValue(
-                    new Date(viewDate.getFullYear(), viewDate.getMonth(), day),
-                  ),
-                )
-              }}
-              type="button"
-            >
-              {day}
-            </button>
-          ) : (
-            <span key={`empty-${index}`} />
-          ),
+            <div className="mt-2 grid grid-cols-7 gap-1">
+              {calendarDays.map((day, index) =>
+                day ? (
+                  <button
+                    className={`h-9 transform-gpu cursor-pointer rounded-full text-sm font-black transition duration-150 ease-out active:scale-[0.97] ${
+                      selected.getFullYear() === viewDate.getFullYear() &&
+                      selected.getMonth() === viewDate.getMonth() &&
+                      selected.getDate() === day
+                        ? theme.chipActive
+                        : today.getFullYear() === viewDate.getFullYear() &&
+                            today.getMonth() === viewDate.getMonth() &&
+                            today.getDate() === day
+                          ? `cursor-pointer border ${theme.inputAccent} bg-white/60 ${theme.accentText} ${hoverSoft}`
+                          : `cursor-pointer text-stone-600 ${hoverSoft}`
+                    }`}
+                    key={`${viewDate.getFullYear()}-${viewDate.getMonth()}-${day}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onSelect(
+                        formatDateForValue(
+                          new Date(
+                            viewDate.getFullYear(),
+                            viewDate.getMonth(),
+                            day,
+                          ),
+                        ),
+                      )
+                    }}
+                    type="button"
+                  >
+                    {day}
+                  </button>
+                ) : (
+                  <span key={`empty-${index}`} />
+                ),
+              )}
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -476,11 +567,16 @@ const CreatePet = () => {
   const [arrivalDate, setArrivalDate] = useState(getToday())
   const [memorialDate, setMemorialDate] = useState('')
   const [avatarPreview, setAvatarPreview] = useState('')
+  const [modelReferenceImages, setModelReferenceImages] = useState<string[]>([])
+  const [isModelReferencePanelOpen, setIsModelReferencePanelOpen] =
+    useState(false)
   const breedDropdownRef = useRef<HTMLDivElement | null>(null)
   const birthdayDateRef = useRef<HTMLDivElement | null>(null)
   const statusDateRef = useRef<HTMLDivElement | null>(null)
   const datePopoverRef = useRef<HTMLDivElement | null>(null)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const modelReferencePanelRef = useRef<HTMLDivElement | null>(null)
+  const modelReferenceInputRef = useRef<HTMLInputElement | null>(null)
 
   const breeds = petType === 'cat' ? catBreeds : dogBreeds
   const selectedDate = status === 'active' ? arrivalDate : memorialDate
@@ -502,6 +598,14 @@ const CreatePet = () => {
       ) {
         setActiveCalendar(null)
       }
+
+      if (
+        isModelReferencePanelOpen &&
+        modelReferencePanelRef.current &&
+        !modelReferencePanelRef.current.contains(target)
+      ) {
+        setIsModelReferencePanelOpen(false)
+      }
     }
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -509,6 +613,7 @@ const CreatePet = () => {
         setIsBreedDropdownOpen(false)
         setActiveCalendar(null)
         setIsConfirmModalOpen(false)
+        setIsModelReferencePanelOpen(false)
       }
     }
 
@@ -519,7 +624,7 @@ const CreatePet = () => {
       document.removeEventListener('mousedown', handlePointerDown)
       document.removeEventListener('keydown', handleKeyDown)
     }
-  }, [])
+  }, [isModelReferencePanelOpen])
 
   const handleTypeChange = (type: PetType) => {
     setPetType(type)
@@ -559,7 +664,48 @@ const CreatePet = () => {
     setAvatarPreview(URL.createObjectURL(file))
   }
 
-  const buildPet = (): Pet => {
+  const handleModelReferenceChange = (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const files = Array.from(event.target.files || [])
+
+    if (files.length === 0) {
+      return
+    }
+
+    const invalidFile = files.find((file) => !allowedImageTypes.has(file.type))
+
+    if (invalidFile) {
+      window.alert('请上传图片文件')
+      event.target.value = ''
+      return
+    }
+
+    setModelReferenceImages((images) => {
+      const remainingSlots = maxModelReferenceImages - images.length
+
+      if (remainingSlots <= 0) {
+        window.alert('最多上传 3 张参考图')
+        return images
+      }
+
+      if (files.length > remainingSlots) {
+        window.alert('最多上传 3 张参考图')
+      }
+
+      return [
+        ...images,
+        ...files.slice(0, remainingSlots).map((file) => URL.createObjectURL(file)),
+      ]
+    })
+    event.target.value = ''
+  }
+
+  const removeModelReferenceImage = (image: string) => {
+    setModelReferenceImages((images) => images.filter((item) => item !== image))
+  }
+
+  const buildPet = (): CreatePetProfile => {
     const trimmedName = name.trim()
 
     return {
@@ -570,6 +716,8 @@ const CreatePet = () => {
       sex,
       neuteredStatus,
       avatar: avatarPreview,
+      modelReferenceImageUrl: modelReferenceImages[0] || '',
+      modelReferenceImages,
       status,
       birthday: birthday || getToday(),
       ...(status === 'active'
@@ -627,6 +775,7 @@ const CreatePet = () => {
   const neuteredStatusLabel =
     neuteredStatusOptions.find((option) => option.value === neuteredStatus)
       ?.label || '未绝育'
+  const modelReferenceCount = modelReferenceImages.length
   const modalRows = [
     { label: '名字', value: petName },
     { label: '类型', value: petTypeLabel },
@@ -634,6 +783,10 @@ const CreatePet = () => {
     { label: '性别', value: sexLabel },
     { label: '绝育状态', value: neuteredStatusLabel },
     { label: '状态', value: statusLabel, accent: true },
+    {
+      label: 'AI形象参考图',
+      value: modelReferenceCount ? `已上传 ${modelReferenceCount} 张` : '未上传',
+    },
     { label: '生日', value: formatDateForDisplay(birthday) },
     {
       label: status === 'active' ? '到家日期' : '离世日期',
@@ -672,6 +825,17 @@ const CreatePet = () => {
             to {
               opacity: 1;
               transform: translateX(0) translateY(-50%) scaleX(1) scaleY(1);
+            }
+          }
+
+          @keyframes createPetCalendarViewIn {
+            from {
+              opacity: 0;
+              transform: translateY(8px) scale(0.98);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0) scale(1);
             }
           }
 
@@ -963,12 +1127,12 @@ const CreatePet = () => {
             </OptionCard>
           </div>
 
-          <div className="pointer-events-none relative mx-auto flex h-[min(52vh,440px)] w-full max-w-[560px] items-center justify-center">
-            <div className="relative h-[min(48vh,420px)] w-[clamp(360px,34vw,560px)] -translate-y-[38px] scale-[0.93]">
+          <div className="relative mx-auto flex h-[min(52vh,440px)] w-full max-w-[560px] items-center justify-center">
+            <div className="group relative h-[min(48vh,420px)] w-[clamp(360px,34vw,560px)] -translate-y-[38px] scale-[0.93]">
               <img
                 alt=""
                 aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-500 ease-out ${
+                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
                   status === 'active' ? 'opacity-100' : 'opacity-0'
                 }`}
                 src="/images/auth/create-pet-page/dashed-active.png"
@@ -976,10 +1140,185 @@ const CreatePet = () => {
               <img
                 alt=""
                 aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition-opacity duration-500 ease-out ${
+                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
                   status === 'memorial' ? 'opacity-100' : 'opacity-0'
                 }`}
                 src="/images/auth/create-pet-page/dashed-memorial.png"
+              />
+              {modelReferenceCount > 0 ? (
+                <div className="pointer-events-none absolute left-1/2 top-[43%] z-[5] flex -translate-x-1/2 -translate-y-1/2 gap-2 rounded-[26px] bg-white/45 p-2 shadow-[0_18px_42px_rgba(74,48,20,0.16)] backdrop-blur-sm transition duration-300 ease-out group-hover:scale-[1.015]">
+                  {modelReferenceImages.map((image, index) => (
+                    <img
+                      alt={`AI宠物形象参考图 ${index + 1}`}
+                      className={`rounded-[20px] border border-white/80 object-cover shadow-sm ${
+                        modelReferenceCount === 1 ? 'h-40 w-40' : 'h-24 w-24'
+                      }`}
+                      key={image}
+                      src={image}
+                    />
+                  ))}
+                </div>
+              ) : null}
+              <button
+                aria-label="上传参考照片用于生成 AI 宠物形象"
+                className={`absolute inset-0 z-10 flex cursor-pointer justify-center rounded-[34px] text-center outline-none transition duration-300 ease-out focus-visible:ring-4 focus-visible:ring-white/80 ${
+                  modelReferenceCount > 0 ? 'items-end pb-12' : 'items-center'
+                }`}
+                onClick={() => {
+                  if (!isModelReferencePanelOpen) {
+                    setIsModelReferencePanelOpen(true)
+                  }
+                }}
+                type="button"
+              >
+                <span
+                  className={`rounded-full border border-white/80 bg-white/76 px-5 py-3 shadow-[0_14px_34px_rgba(87,66,40,0.16)] backdrop-blur transition duration-300 ease-out group-hover:-translate-y-1 group-hover:bg-white/92 ${
+                    status === 'active'
+                      ? 'group-hover:shadow-[0_16px_38px_rgba(234,88,12,0.22)]'
+                      : 'group-hover:shadow-[0_16px_38px_rgba(126,34,206,0.20)]'
+                  }`}
+                >
+                  <span className={`block text-sm font-black ${theme.accentText}`}>
+                    {modelReferenceCount > 0
+                      ? `已上传 ${modelReferenceCount} 张参考图`
+                      : '点击生成 AI 宠物形象'}
+                  </span>
+                  <span className="mt-1 block text-xs font-bold text-stone-500">
+                    {modelReferenceCount === 0
+                      ? '建议上传 2–3 张清晰照片'
+                      : modelReferenceCount >= maxModelReferenceImages
+                        ? '管理照片'
+                        : '继续添加 / 管理照片'}
+                  </span>
+                </span>
+              </button>
+              <div
+                className={`absolute left-1/2 top-1/2 z-30 w-[min(372px,90%)] -translate-x-1/2 -translate-y-1/2 ${
+                  isModelReferencePanelOpen
+                    ? 'pointer-events-auto'
+                    : 'pointer-events-none'
+                }`}
+              >
+                <div
+                  ref={modelReferencePanelRef}
+                  className={`origin-bottom rounded-[28px] border border-white/80 bg-white/92 p-5 text-left shadow-[0_24px_64px_rgba(74,48,20,0.22)] backdrop-blur-md transition-all duration-300 ease-out ${
+                    isModelReferencePanelOpen
+                      ? 'translate-y-0 scale-100 opacity-100'
+                      : 'translate-y-3 scale-95 opacity-0'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className={`text-lg font-black ${theme.accentText}`}>
+                        AI 模型形象参考图
+                      </p>
+                    </div>
+                    <button
+                      aria-label="关闭上传说明面板"
+                      className={`flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/80 text-base font-black text-stone-500 shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:scale-105 hover:shadow-md active:scale-95 ${
+                        status === 'active'
+                          ? 'hover:bg-orange-50 hover:text-orange-600'
+                          : 'hover:bg-purple-50 hover:text-purple-600'
+                      }`}
+                      onClick={() => setIsModelReferencePanelOpen(false)}
+                      type="button"
+                    >
+                      <span aria-hidden="true">×</span>
+                    </button>
+                  </div>
+
+                  <div className="mt-3 space-y-3">
+                    <p className="text-sm font-semibold leading-6 text-stone-600">
+                      上传 2–3 张清晰照片，AI 形象会更接近 TA。
+                    </p>
+
+                    <div>
+                      <p className="text-xs font-black tracking-[0.08em] text-stone-400">
+                        建议包含
+                      </p>
+                      <div className="mt-2 grid gap-2.5 text-sm font-bold leading-5 text-stone-600">
+                        {[
+                          '正脸清晰照',
+                          '侧脸或全身照',
+                          '有代表性的表情或姿势照',
+                        ].map((tip) => (
+                          <span className="flex items-center gap-2" key={tip}>
+                            <span
+                              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                                status === 'active'
+                                  ? 'bg-orange-500'
+                                  : 'bg-purple-500'
+                              }`}
+                            />
+                            <span>{tip}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <p
+                      className={`rounded-2xl px-3 py-2 text-left text-sm font-semibold leading-6 ${
+                        status === 'active'
+                          ? 'bg-orange-50 text-orange-700'
+                          : 'bg-purple-50 text-purple-700'
+                      }`}
+                    >
+                      照片越清晰，生成效果越稳定。
+                    </p>
+                  </div>
+
+                  {modelReferenceCount > 0 ? (
+                    <div className="mt-3 grid grid-cols-3 gap-2">
+                      {modelReferenceImages.map((image, index) => (
+                        <div
+                          className="group/thumb relative overflow-hidden rounded-2xl border border-white/80 bg-white shadow-inner"
+                          key={image}
+                        >
+                          <img
+                            alt={`AI形象参考图 ${index + 1}`}
+                            className="h-20 w-full object-cover"
+                            src={image}
+                          />
+                          <button
+                            className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-xs font-black text-white opacity-90 transition hover:bg-black/65"
+                            onClick={() => removeModelReferenceImage(image)}
+                            type="button"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <p className="min-w-0 text-xs font-bold leading-5 text-stone-400">
+                      最多上传 3 张，支持 JPG / PNG / WEBP
+                    </p>
+                    <button
+                      className={`h-10 shrink-0 rounded-full px-5 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 ${
+                        modelReferenceCount >= maxModelReferenceImages
+                          ? 'cursor-not-allowed bg-stone-300'
+                          : status === 'active'
+                            ? 'bg-orange-500 hover:bg-orange-400'
+                            : 'bg-purple-500 hover:bg-purple-400'
+                      }`}
+                      disabled={modelReferenceCount >= maxModelReferenceImages}
+                      onClick={() => modelReferenceInputRef.current?.click()}
+                      type="button"
+                    >
+                      选择照片
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <input
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                multiple
+                onChange={handleModelReferenceChange}
+                ref={modelReferenceInputRef}
+                type="file"
               />
             </div>
           </div>

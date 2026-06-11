@@ -27,12 +27,18 @@ Before implementing or modifying pages, read:
 2. DESIGN_MAP.md
 3. TASKS.md
 4. AGENTS.md
+5. DESIGN_SYSTEM.md for UI, interaction, and component consistency
 
 Use design images in:
 
 public/images/design-reference/
 
 as visual references.
+
+Before making any UI changes, read DESIGN_SYSTEM.md and preserve the existing
+interaction system. Reuse the established theme colors, card styles, date
+picker, button feedback, popover behavior, and page navigation patterns. Do not
+introduce inconsistent one-off UI patterns unless explicitly requested.
 
 ---
 
