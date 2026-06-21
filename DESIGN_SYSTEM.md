@@ -142,6 +142,35 @@ Rules:
 - Do not use exaggerated bounce.
 - Do not use sudden grow-on-click animations for normal buttons.
 
+### Interactive Cards and Clickable Components
+
+- Any card or component with a click action must have hover, active, and
+  transition feedback.
+- Reuse the established CreatePet interaction language for clickable cards:
+  soft lift, subtle background brightening, smooth transition, and restrained
+  press feedback.
+- Do not introduce one-off hover effects that feel different from CreatePet
+  unless the user explicitly requests a new interaction style.
+- Clickable cards should include a right-side arrow indicator matching the
+  CreatePet clickable card language.
+- The whole visible card remains clickable; the arrow is an affordance, not the
+  only click target.
+- Exception: components that are already clearly styled as buttons do not need
+  an extra arrow.
+
+### Home Card Popovers
+
+- Any popover opened from a Home page card must stay visually attached to the
+  card that triggered it, normally on the card's right side.
+- Home card popovers must not appear as centered modals unless explicitly
+  requested.
+- They may cover the center pet display area, but must not push, resize, or
+  reflow the Home layout.
+- They must avoid parent overflow clipping; use a safer layer or portal when
+  needed while preserving visual attachment to the triggering card.
+- Reuse the same animation language as the CreatePet breed selector and the
+  Today’s Mood popup.
+
 ### Confirm Buttons
 
 - The entire visible rounded button area must be clickable.

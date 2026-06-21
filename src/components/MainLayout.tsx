@@ -70,6 +70,11 @@ const mainHeaderBackgrounds: Record<PetStatus, string> = {
   memorial: '/images/auth/home-page/background-up-memorial.png',
 }
 
+const mainContentBackgrounds: Record<PetStatus, string> = {
+  active: '/images/auth/home-page/background-active.png',
+  memorial: '/images/auth/home-page/background-memorial.png',
+}
+
 const mainHeaderImageStyles: Record<
   PetStatus,
   { transform: string; width?: string }
@@ -150,7 +155,10 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
   }
 
   useEffect(() => {
-    Object.values(mainHeaderBackgrounds).forEach((src) => {
+    ;[
+      ...Object.values(mainHeaderBackgrounds),
+      ...Object.values(mainContentBackgrounds),
+    ].forEach((src) => {
       const image = new Image()
       image.src = src
     })
@@ -335,11 +343,22 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
             })}
           </nav>
 
-          <section
-            className="h-[calc(70%-17px)] overflow-hidden bg-[#fffaf3]"
-          >
+          <section className="relative h-[calc(70%-17px)] overflow-hidden bg-[#fffaf3]">
+            {(['active', 'memorial'] as const).map((backgroundStatus) => (
+              <img
+                alt=""
+                aria-hidden="true"
+                className={`pointer-events-none absolute inset-0 z-0 h-full w-full object-cover transition-opacity duration-500 ease-out will-change-[opacity] [backface-visibility:hidden] ${
+                  status === backgroundStatus ? 'opacity-100' : 'opacity-0'
+                }`}
+                decoding="async"
+                key={backgroundStatus}
+                loading="eager"
+                src={mainContentBackgrounds[backgroundStatus]}
+              />
+            ))}
             <div
-              className="h-full"
+              className="relative z-10 h-full"
               key={currentPath}
               style={{
                 animation:
