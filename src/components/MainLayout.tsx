@@ -3,15 +3,19 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
+  type ChangeEvent,
   type ReactNode,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { mockPet } from '../data/mockData'
 import type { Pet, PetStatus } from '../types'
 import {
   getPetStatus,
   getStorageItem,
   setPetStatus as persistPetStatus,
+  setStorageItem,
   STORAGE_KEYS,
 } from '../utils/storage'
 
@@ -88,11 +92,92 @@ const mainHeaderImageStyles: Record<
   },
 }
 
+const avatarImageTypes = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const avatarMaxSizeBytes = 10 * 1024 * 1024
+
+class AvatarImageError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'AvatarImageError'
+  }
+}
+
+const readFileAsDataUrl = (file: File) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+
+    reader.onerror = () =>
+      reject(new AvatarImageError('头像处理失败，请换一张图片再试'))
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '')
+
+      if (!dataUrl) {
+        reject(new AvatarImageError('头像处理失败，请换一张图片再试'))
+        return
+      }
+
+      resolve(dataUrl)
+    }
+    reader.readAsDataURL(file)
+  })
+
+const loadAvatarImage = (dataUrl: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image()
+
+    image.onerror = () =>
+      reject(new AvatarImageError('头像处理失败，请换一张图片再试'))
+    image.onload = () => resolve(image)
+    image.src = dataUrl
+  })
+
+const compressAvatarImage = async (file: File) => {
+  if (!avatarImageTypes.has(file.type)) {
+    throw new AvatarImageError('请上传 JPG、PNG 或 WEBP 格式的图片')
+  }
+
+  if (file.size > avatarMaxSizeBytes) {
+    throw new AvatarImageError('头像图片不能超过 10MB')
+  }
+
+  try {
+    const dataUrl = await readFileAsDataUrl(file)
+    const image = await loadAvatarImage(dataUrl)
+    const maxSide = 512
+    const sourceWidth = image.naturalWidth || image.width
+    const sourceHeight = image.naturalHeight || image.height
+    const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight))
+    const width = Math.max(1, Math.round(sourceWidth * scale))
+    const height = Math.max(1, Math.round(sourceHeight * scale))
+    const canvas = document.createElement('canvas')
+
+    canvas.width = width
+    canvas.height = height
+
+    const context = canvas.getContext('2d')
+
+    if (!context) {
+      throw new AvatarImageError('头像处理失败，请换一张图片再试')
+    }
+
+    context.fillStyle = '#fff'
+    context.fillRect(0, 0, width, height)
+    context.drawImage(image, 0, 0, width, height)
+
+    return canvas.toDataURL('image/jpeg', 0.82)
+  } catch (error) {
+    if (error instanceof AvatarImageError) {
+      throw error
+    }
+
+    throw new AvatarImageError('头像处理失败，请换一张图片再试')
+  }
+}
+
 const mainNavItems = [
   { path: '/home', label: '首页', icon: '⌂' },
   { path: '/timeline', label: '时间线', icon: '◌' },
   { path: '/album', label: '相册', icon: '▧' },
-  { path: '/diary', label: '日记', icon: '✎' },
   { path: '/growth-records', label: '成长记录', icon: '✚' },
 ]
 
@@ -138,20 +223,72 @@ export const useMainPetLayout = () => {
 }
 
 const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
-  const [pet] = useState(() => getStorageItem<Pet>(STORAGE_KEYS.pet, mockPet))
+  const [pet, setPet] = useState(() =>
+    getStorageItem<Pet>(STORAGE_KEYS.pet, mockPet),
+  )
   const [status, setStatus] = useState<PetStatus>(() =>
     getPetStatus(pet.status),
   )
+  const [isAvatarModalOpen, setIsAvatarModalOpen] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+  const [isAvatarProcessing, setIsAvatarProcessing] = useState(false)
+  const [avatarLoadError, setAvatarLoadError] = useState(false)
+  const avatarInputRef = useRef<HTMLInputElement | null>(null)
   const theme = mainThemes[status]
   const ageText = useMemo(() => getAgeText(pet.birthday), [pet.birthday])
   const avatarFallback =
     status === 'active'
       ? '/images/auth/create-pet-page/active_upload_avatar_icon.png'
       : '/images/auth/create-pet-page/memorial_upload_avatar_icon.png'
+  const hasAvatar = Boolean(pet.avatar) && !avatarLoadError
+  const avatarSrc = hasAvatar ? pet.avatar : avatarFallback
+  const avatarButtonClass =
+    status === 'active'
+      ? 'bg-gradient-to-r from-orange-600 to-orange-500 shadow-[0_18px_34px_rgba(234,88,12,0.26)] hover:from-orange-500 hover:to-orange-400'
+      : 'bg-gradient-to-r from-purple-600 to-purple-500 shadow-[0_18px_34px_rgba(126,34,206,0.24)] hover:from-purple-500 hover:to-purple-400'
 
   const handleStatusChange = (nextStatus: PetStatus) => {
     setStatus(nextStatus)
     persistPetStatus(nextStatus)
+  }
+
+  const closeAvatarModal = () => {
+    setIsAvatarModalOpen(false)
+    setAvatarError('')
+  }
+
+  const handleAvatarFileChange = async (
+    event: ChangeEvent<HTMLInputElement>,
+  ) => {
+    const file = event.target.files?.[0]
+    event.target.value = ''
+
+    if (!file) {
+      return
+    }
+
+    setAvatarError('')
+    setIsAvatarProcessing(true)
+
+    try {
+      const compressedAvatar = await compressAvatarImage(file)
+      const nextPet = {
+        ...pet,
+        avatar: compressedAvatar,
+      }
+
+      setPet(nextPet)
+      setStorageItem(STORAGE_KEYS.pet, nextPet)
+      setAvatarLoadError(false)
+    } catch (error) {
+      setAvatarError(
+        error instanceof AvatarImageError
+          ? error.message
+          : '头像处理失败，请换一张图片再试',
+      )
+    } finally {
+      setIsAvatarProcessing(false)
+    }
   }
 
   useEffect(() => {
@@ -163,6 +300,32 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
       image.src = src
     })
   }, [])
+
+  useEffect(() => {
+    setAvatarLoadError(false)
+  }, [pet.avatar, status])
+
+  useEffect(() => {
+    closeAvatarModal()
+  }, [currentPath, status])
+
+  useEffect(() => {
+    if (!isAvatarModalOpen) {
+      return undefined
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeAvatarModal()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isAvatarModalOpen])
 
   const contextValue = useMemo(
     () => ({
@@ -190,6 +353,22 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
             to {
               opacity: 1;
               transform: translateY(0);
+            }
+          }
+
+          @keyframes mainAvatarOverlayIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+
+          @keyframes mainAvatarModalIn {
+            from {
+              opacity: 0;
+              transform: translate(-50%, -48%) scale(0.96);
+            }
+            to {
+              opacity: 1;
+              transform: translate(-50%, -50%) scale(1);
             }
           }
         `}
@@ -221,15 +400,24 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
 
             <div className="relative z-10 flex h-full w-full px-8 py-6">
               <div className="flex h-full flex-1 items-center gap-4">
-                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border-4 border-white/75 bg-white/70 shadow-[0_14px_34px_rgba(116,72,28,0.16)]">
+                <button
+                  aria-label="查看并切换宠物头像"
+                  className="flex h-24 w-24 cursor-pointer items-center justify-center overflow-hidden rounded-full border-4 border-white/75 bg-white/70 shadow-[0_14px_34px_rgba(116,72,28,0.16)] transition duration-200 ease-out hover:-translate-y-0.5 hover:scale-[1.02] hover:bg-white/86 hover:shadow-[0_18px_42px_rgba(116,72,28,0.22)] active:scale-[0.97]"
+                  onClick={() => {
+                    setAvatarError('')
+                    setIsAvatarModalOpen(true)
+                  }}
+                  type="button"
+                >
                   <img
                     alt={pet.name || '奶糖'}
                     className={`h-full w-full ${
-                      pet.avatar ? 'object-cover' : 'object-contain p-5'
+                      hasAvatar ? 'object-cover' : 'object-contain p-5'
                     }`}
-                    src={pet.avatar || avatarFallback}
+                    onError={() => setAvatarLoadError(true)}
+                    src={avatarSrc}
                   />
-                </div>
+                </button>
 
                 <div>
                   <div className="flex items-center gap-2">
@@ -305,7 +493,7 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
           </header>
 
           <nav
-            className="relative -mt-px grid h-12 grid-cols-5 items-center border-b border-t-0 border-stone-100 bg-white/82 px-8 pt-0"
+            className="relative -mt-px grid h-12 grid-cols-4 items-center border-b border-t-0 border-stone-100 bg-white/82 px-8 pt-0"
           >
             <span
               aria-hidden="true"
@@ -313,7 +501,7 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
               style={{
                 left: '32px',
                 transform: `translateX(${activeNavIndex * 100}%)`,
-                width: 'calc((100% - 64px) / 5)',
+                width: 'calc((100% - 64px) / 4)',
               }}
             >
               <span
@@ -370,6 +558,87 @@ const MainLayout = ({ children, currentPath }: MainLayoutProps) => {
           </section>
         </div>
       </main>
+      <input
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleAvatarFileChange}
+        ref={avatarInputRef}
+        type="file"
+      />
+      {isAvatarModalOpen
+        ? createPortal(
+            <div className="fixed inset-0 z-[100]" onClick={closeAvatarModal}>
+              <div
+                className="absolute inset-0 bg-black/38"
+                style={{
+                  animation: 'mainAvatarOverlayIn 220ms ease-out both',
+                }}
+              />
+              <section
+                className="fixed left-1/2 top-1/2 z-[101] flex max-h-[calc(100vh-48px)] w-[min(560px,calc(100vw-44px))] flex-col overflow-hidden rounded-[30px] border border-white/80 bg-white/95 p-5 shadow-[0_28px_80px_rgba(47,28,8,0.24)] backdrop-blur"
+                onClick={(event) => event.stopPropagation()}
+                style={{
+                  animation:
+                    'mainAvatarModalIn 260ms cubic-bezier(0.22, 1, 0.36, 1) both',
+                }}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className={`text-xs font-black ${theme.primary}`}>
+                      {status === 'active' ? 'Active Avatar' : 'Memory Avatar'}
+                    </p>
+                    <h3 className="mt-1 truncate text-2xl font-black text-stone-900">
+                      {pet.name || '奶糖'}的头像
+                    </h3>
+                  </div>
+                  <button
+                    aria-label="关闭头像查看窗口"
+                    className={`flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/80 text-lg font-black text-stone-500 shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:scale-105 hover:shadow-md active:scale-95 ${
+                      status === 'active'
+                        ? 'hover:bg-orange-50 hover:text-orange-600'
+                        : 'hover:bg-purple-50 hover:text-purple-600'
+                    }`}
+                    onClick={closeAvatarModal}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="mt-5 flex h-[280px] w-full items-center justify-center rounded-[24px] bg-stone-50/80 shadow-inner">
+                  <img
+                    alt={pet.name || '宠物头像'}
+                    className={`h-56 w-56 rounded-full border-4 border-white bg-white/70 shadow-[0_18px_44px_rgba(87,66,40,0.16)] ${
+                      hasAvatar ? 'object-cover' : 'object-contain p-10'
+                    }`}
+                    onError={() => setAvatarLoadError(true)}
+                    src={avatarSrc}
+                  />
+                </div>
+
+                <div className="mt-5 flex flex-col items-center">
+                  <button
+                    className={`h-11 min-w-[160px] rounded-full bg-gradient-to-r px-8 text-sm font-black text-white transition duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] ${avatarButtonClass}`}
+                    disabled={isAvatarProcessing}
+                    onClick={() => avatarInputRef.current?.click()}
+                    type="button"
+                  >
+                    {isAvatarProcessing ? '处理中...' : '切换头像'}
+                  </button>
+                  <p
+                    aria-live="polite"
+                    className={`mt-3 min-h-[18px] text-center text-xs font-black ${
+                      avatarError ? 'text-rose-400' : 'text-stone-400'
+                    }`}
+                  >
+                    {avatarError || '支持 JPG、PNG、WEBP，单张不超过 10MB'}
+                  </p>
+                </div>
+              </section>
+            </div>,
+            document.body,
+          )
+        : null}
     </MainPetContext.Provider>
   )
 }

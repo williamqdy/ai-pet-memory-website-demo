@@ -3,7 +3,6 @@ import type { ComponentType } from 'react'
 import MainLayout from './components/MainLayout'
 import Album from './pages/Album'
 import CreatePet from './pages/CreatePet'
-import Diary from './pages/Diary'
 import GrowthRecords from './pages/GrowthRecords'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -23,7 +22,6 @@ const routes: RouteConfig[] = [
   { path: '/home', Component: Home, layout: 'main' },
   { path: '/timeline', Component: Timeline, layout: 'main' },
   { path: '/album', Component: Album, layout: 'main' },
-  { path: '/diary', Component: Diary, layout: 'main' },
   { path: '/growth-records', Component: GrowthRecords, layout: 'main' },
 ]
 
@@ -31,14 +29,24 @@ const routePaths = routes.map((route) => route.path)
 
 const normalizePath = (pathname: string) => {
   const trimmedPath = pathname.replace(/\/+$/, '')
+  const normalizedPath = trimmedPath === '' ? '/login' : trimmedPath
 
-  return trimmedPath === '' ? '/login' : trimmedPath
+  return normalizedPath === '/diary' ? '/home' : normalizedPath
 }
 
 function App() {
   const [currentPath, setCurrentPath] = useState(() =>
     normalizePath(window.location.pathname),
   )
+
+  useEffect(() => {
+    const normalizedPath = normalizePath(window.location.pathname)
+
+    if (normalizedPath !== window.location.pathname) {
+      window.history.replaceState(null, '', normalizedPath)
+      setCurrentPath(normalizedPath)
+    }
+  }, [])
 
   useEffect(() => {
     const handlePopState = () => {

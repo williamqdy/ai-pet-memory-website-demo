@@ -18,6 +18,12 @@ export const STORAGE_KEYS = {
   growthRecords: 'petMemory:growthRecords',
 } as const
 
+export const SESSION_STORAGE_KEYS = {
+  currentLoginSessionId: 'petMemory:currentLoginSessionId',
+  memorialPreciousMomentsSelection:
+    'petMemory:memorialPreciousMomentsSelection',
+} as const
+
 export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
 
 const getLocalStorage = () => {

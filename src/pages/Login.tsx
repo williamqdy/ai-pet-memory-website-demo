@@ -1,9 +1,38 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
 import LoginAuthLayout, { authCardBaseClass } from '../components/LoginAuthLayout'
+import { mockUser } from '../data/mockData'
 import { navigateTo } from '../utils/navigation'
-import { getStorageItem, STORAGE_KEYS } from '../utils/storage'
-import type { Pet } from '../types'
+import {
+  getStorageItem,
+  SESSION_STORAGE_KEYS,
+  STORAGE_KEYS,
+} from '../utils/storage'
+import type { Pet, User } from '../types'
+
+type LoginUser = User & {
+  password?: string
+}
+
+const demoUsers: LoginUser[] = [
+  {
+    ...mockUser,
+    password: '123456',
+  },
+  {
+    id: 'user-demo-simple',
+    username: 'demo',
+    email: 'demo@example.com',
+    password: '123456',
+  },
+]
+
+const getDemoPasswordForUser = (user: User) =>
+  demoUsers.find(
+    (demoUser) =>
+      demoUser.username === user.username ||
+      (user.email && demoUser.email === user.email),
+  )?.password
 
 const Login = () => {
   const [username, setUsername] = useState('')
@@ -14,10 +43,49 @@ const Login = () => {
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!username.trim() || !password.trim()) {
-      setError('请输入用户名和密码')
+    const inputAccount = username.trim()
+    const inputPassword = password.trim()
+
+    if (!inputAccount) {
+      setError('请输入用户名')
       return
     }
+
+    if (!inputPassword) {
+      setError('请输入密码')
+      return
+    }
+
+    const registeredUser = getStorageItem<User | null>(STORAGE_KEYS.user, null)
+    const storedUser: LoginUser | null = registeredUser
+      ? {
+          ...registeredUser,
+          password:
+            registeredUser.password || getDemoPasswordForUser(registeredUser),
+        }
+      : null
+    const allUsers = storedUser ? [storedUser, ...demoUsers] : demoUsers
+    const matchedUser = allUsers.find(
+      (user) => user.username === inputAccount || user.email === inputAccount,
+    )
+
+    if (!matchedUser) {
+      setError('还没有创建账号，请先创建账号')
+      return
+    }
+
+    if (matchedUser.password !== inputPassword) {
+      setError('密码错误，请重新输入')
+      return
+    }
+
+    window.sessionStorage.setItem(
+      SESSION_STORAGE_KEYS.currentLoginSessionId,
+      `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    )
+    window.sessionStorage.removeItem(
+      SESSION_STORAGE_KEYS.memorialPreciousMomentsSelection,
+    )
 
     const existingPet = getStorageItem<Pet | null>(STORAGE_KEYS.pet, null)
 

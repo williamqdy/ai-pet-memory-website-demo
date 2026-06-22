@@ -3,8 +3,13 @@ import type { ReactNode, Ref, RefObject } from 'react'
 import { createPortal } from 'react-dom'
 import { useMainPetLayout } from '../components/MainLayout'
 import { mockTimelineEvents } from '../data/mockData'
-import type { TimelineEvent } from '../types'
-import { getStorageItem, STORAGE_KEYS } from '../utils/storage'
+import type { AlbumPhoto, TimelineEvent } from '../types'
+import { getAlbumImage } from '../utils/albumImageDB'
+import {
+  getStorageItem,
+  SESSION_STORAGE_KEYS,
+  STORAGE_KEYS,
+} from '../utils/storage'
 
 const activeMoodOptions = ['开心', '安静', '兴奋', '撒娇', '疲惫', '有点emo']
 const memorialMoodOptions = ['安详', '想念', '温柔', '平静', '守护', '怀念']
@@ -15,6 +20,22 @@ const activityStorageKey = 'petMemory:homeActivity'
 const commonDietTags = ['主粮', '罐头', '冻干', '零食', '小鱼干', '鸡胸肉']
 
 type HomePopover = 'mood' | 'diet' | 'activity' | null
+
+type StoredAlbumPhoto = AlbumPhoto & {
+  createdAt?: string
+  imageId?: string
+}
+
+type MemorialPreciousMoment = {
+  id: string
+  image: string
+  title: string
+}
+
+type MemorialPreciousMomentsSelection = {
+  photoIds: string[]
+  sessionId: string
+}
 
 type DietRecord = {
   customFood: string
@@ -115,6 +136,154 @@ const saveDietRecord = (record: DietRecord) => {
 
 const saveActivityRecord = (record: ActivityRecord) => {
   window.localStorage.setItem(activityStorageKey, JSON.stringify(record))
+}
+
+const readStoredAlbumPhotos = () =>
+  getStorageItem<StoredAlbumPhoto[]>(STORAGE_KEYS.albumPhotos, [])
+
+const isUserUploadedAlbumPhoto = (photo: StoredAlbumPhoto) =>
+  photo.id.startsWith('album-upload-') &&
+  photo.status === 'memorial' &&
+  (Boolean(photo.imageId) || photo.image.trim().length > 0)
+
+const getCurrentLoginSessionId = () => {
+  if (typeof window === 'undefined') {
+    return 'server'
+  }
+
+  const existingSessionId = window.sessionStorage.getItem(
+    SESSION_STORAGE_KEYS.currentLoginSessionId,
+  )
+
+  if (existingSessionId) {
+    return existingSessionId
+  }
+
+  const fallbackSessionId = `home-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`
+
+  window.sessionStorage.setItem(
+    SESSION_STORAGE_KEYS.currentLoginSessionId,
+    fallbackSessionId,
+  )
+
+  return fallbackSessionId
+}
+
+const readMemorialPreciousSelection = () => {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  try {
+    const rawSelection = window.sessionStorage.getItem(
+      SESSION_STORAGE_KEYS.memorialPreciousMomentsSelection,
+    )
+
+    if (!rawSelection) {
+      return null
+    }
+
+    const parsedSelection = JSON.parse(
+      rawSelection,
+    ) as Partial<MemorialPreciousMomentsSelection>
+
+    if (
+      typeof parsedSelection.sessionId !== 'string' ||
+      !Array.isArray(parsedSelection.photoIds)
+    ) {
+      return null
+    }
+
+    return {
+      sessionId: parsedSelection.sessionId,
+      photoIds: parsedSelection.photoIds.filter(
+        (photoId): photoId is string => typeof photoId === 'string',
+      ),
+    }
+  } catch {
+    return null
+  }
+}
+
+const saveMemorialPreciousSelection = (
+  selection: MemorialPreciousMomentsSelection,
+) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.sessionStorage.setItem(
+    SESSION_STORAGE_KEYS.memorialPreciousMomentsSelection,
+    JSON.stringify(selection),
+  )
+}
+
+const shuffleAlbumPhotos = (photos: StoredAlbumPhoto[]) => {
+  const shuffledPhotos = [...photos]
+
+  for (let index = shuffledPhotos.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1))
+    ;[shuffledPhotos[index], shuffledPhotos[randomIndex]] = [
+      shuffledPhotos[randomIndex],
+      shuffledPhotos[index],
+    ]
+  }
+
+  return shuffledPhotos
+}
+
+const selectMemorialPreciousPhotoIds = (
+  photos: StoredAlbumPhoto[],
+  sessionId: string,
+) => {
+  const storedSelection = readMemorialPreciousSelection()
+  const availablePhotoIds = new Set(photos.map((photo) => photo.id))
+  const expectedCount = photos.length >= 4 ? 4 : photos.length > 0 ? 1 : 0
+
+  if (
+    storedSelection?.sessionId === sessionId &&
+    storedSelection.photoIds.length === expectedCount &&
+    storedSelection.photoIds.every((photoId) => availablePhotoIds.has(photoId))
+  ) {
+    return storedSelection.photoIds
+  }
+
+  if (expectedCount === 0) {
+    saveMemorialPreciousSelection({
+      sessionId,
+      photoIds: [],
+    })
+    return []
+  }
+
+  const selectedPhotoIds = shuffleAlbumPhotos(photos)
+    .slice(0, expectedCount)
+    .map((photo) => photo.id)
+
+  saveMemorialPreciousSelection({
+    sessionId,
+    photoIds: selectedPhotoIds,
+  })
+
+  return selectedPhotoIds
+}
+
+const resolveAlbumPhotoImage = async (photo: StoredAlbumPhoto) => {
+  if (photo.imageId) {
+    try {
+      const imageRecord = await getAlbumImage(photo.imageId)
+
+      if (imageRecord?.dataUrl) {
+        return imageRecord.dataUrl
+      }
+    } catch {
+      return photo.image.trim()
+    }
+  }
+
+  return photo.image.trim()
 }
 
 const getDietItems = (record: DietRecord) => {
@@ -264,21 +433,59 @@ const HomeCard = ({
   </article>
 )
 
-const PhotoGrid = () => (
-  <div className="grid grid-cols-2 gap-1.5">
-    {['#f7caa2', '#d8c6ff', '#ffd98e', '#f2b7d2'].map((color, index) => (
-      <div
-        className="h-12 rounded-xl border border-white/70 shadow-inner"
-        key={color}
-        style={{
-          background: `linear-gradient(135deg, ${color}, rgba(255,255,255,0.85))`,
-        }}
-      >
-        <span className="sr-only">珍贵瞬间 {index + 1}</span>
+const MemorialPreciousMomentsGrid = ({
+  isLoading,
+  photos,
+}: {
+  isLoading: boolean
+  photos: MemorialPreciousMoment[]
+}) => {
+  if (isLoading) {
+    return (
+      <div className="grid grid-cols-2 gap-1.5">
+        {Array.from({ length: 4 }, (_, index) => (
+          <div
+            className="h-12 animate-pulse rounded-xl border border-white/70 bg-purple-50/80 shadow-inner"
+            key={index}
+          />
+        ))}
       </div>
-    ))}
-  </div>
-)
+    )
+  }
+
+  if (photos.length === 0) {
+    return (
+      <div className="flex h-[102px] items-center justify-center rounded-xl border border-dashed border-purple-200 bg-purple-50/72 px-4 text-center">
+        <p className="text-xs font-black leading-5 text-purple-500">
+          还没有珍贵瞬间，去相册添加照片吧
+        </p>
+      </div>
+    )
+  }
+
+  if (photos.length === 1) {
+    return (
+      <img
+        alt={photos[0].title}
+        className="h-[102px] w-full rounded-xl border border-white/70 object-cover shadow-inner"
+        src={photos[0].image}
+      />
+    )
+  }
+
+  return (
+    <div className="grid grid-cols-2 gap-1.5">
+      {photos.map((photo, index) => (
+        <img
+          alt={photo.title || `珍贵瞬间 ${index + 1}`}
+          className="h-12 rounded-xl border border-white/70 object-cover shadow-inner"
+          key={photo.id}
+          src={photo.image}
+        />
+      ))}
+    </div>
+  )
+}
 
 const MemorialMoodVisual = () => (
   <div className="relative mx-auto flex h-[126px] w-[136px] items-center justify-center">
@@ -617,6 +824,11 @@ const Home = () => {
   const [dietDraft, setDietDraft] = useState(readSavedDiet)
   const [activityDraft, setActivityDraft] = useState(readSavedActivity)
   const [latestActiveMemory] = useState(getLatestActiveTimelineEvent)
+  const [memorialPreciousMoments, setMemorialPreciousMoments] = useState<
+    MemorialPreciousMoment[]
+  >([])
+  const [isMemorialPreciousLoading, setIsMemorialPreciousLoading] =
+    useState(false)
   const [openPopover, setOpenPopover] = useState<HomePopover>(null)
   const moodCardRef = useRef<HTMLElement | null>(null)
   const dietCardRef = useRef<HTMLElement | null>(null)
@@ -664,6 +876,63 @@ const Home = () => {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    if (!isMemorial) {
+      return undefined
+    }
+
+    let isCancelled = false
+
+    const loadMemorialPreciousMoments = async () => {
+      setIsMemorialPreciousLoading(true)
+
+      const sessionId = getCurrentLoginSessionId()
+      const albumPhotos = readStoredAlbumPhotos().filter(
+        isUserUploadedAlbumPhoto,
+      )
+      const selectedPhotoIds = selectMemorialPreciousPhotoIds(
+        albumPhotos,
+        sessionId,
+      )
+      const selectedPhotoIdsSet = new Set(selectedPhotoIds)
+      const selectedPhotos = albumPhotos.filter((photo) =>
+        selectedPhotoIdsSet.has(photo.id),
+      )
+      const resolvedPhotos = await Promise.all(
+        selectedPhotos.map(async (photo) => {
+          const image = await resolveAlbumPhotoImage(photo)
+
+          if (!image) {
+            return null
+          }
+
+          return {
+            id: photo.id,
+            image,
+            title: photo.note?.trim() || '珍贵瞬间',
+          }
+        }),
+      )
+
+      if (isCancelled) {
+        return
+      }
+
+      setMemorialPreciousMoments(
+        resolvedPhotos.filter(
+          (photo): photo is MemorialPreciousMoment => Boolean(photo),
+        ),
+      )
+      setIsMemorialPreciousLoading(false)
+    }
+
+    void loadMemorialPreciousMoments()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [isMemorial])
 
   const handleMoodSelect = (mood: string) => {
     if (isMemorial) {
@@ -978,7 +1247,10 @@ const Home = () => {
               iconSrc="/images/auth/home-page/precious_memories_memorial_icon.png"
               title="珍贵瞬间"
             >
-              <PhotoGrid />
+              <MemorialPreciousMomentsGrid
+                isLoading={isMemorialPreciousLoading}
+                photos={memorialPreciousMoments}
+              />
             </HomeCard>
           ) : (
             <>

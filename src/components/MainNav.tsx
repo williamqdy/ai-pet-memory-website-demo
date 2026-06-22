@@ -6,7 +6,6 @@ const mainNavItems = [
   { path: '/home', label: '首页' },
   { path: '/timeline', label: '时间线' },
   { path: '/album', label: '相册' },
-  { path: '/diary', label: '日记' },
   { path: '/growth-records', label: '成长记录' },
 ]
 

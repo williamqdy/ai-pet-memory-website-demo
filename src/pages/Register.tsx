@@ -41,6 +41,7 @@ const Register = () => {
       id: `user-${Date.now()}`,
       username: username.trim(),
       email: email.trim(),
+      password: password.trim(),
     }
 
     setStorageItem(STORAGE_KEYS.user, user)
