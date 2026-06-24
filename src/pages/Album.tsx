@@ -248,14 +248,60 @@ const setStoredAlbumCarouselIndex = (status: PetStatus, index: number) => {
 const getSafeCarouselIndex = (index: number, total: number) =>
   total > 0 && index >= 0 && index < total ? index : 0
 
+const photoClickDelayMs = 220
+
 const getInitialCarouselIndexes = (): Record<PetStatus, number> => ({
   active: getStoredAlbumCarouselIndex('active'),
   memorial: getStoredAlbumCarouselIndex('memorial'),
 })
 
+const getHiddenExampleStorageKey = (status: PetStatus) =>
+  `petMemory:albumHiddenExamplePhotos:${status}`
+
+const getStoredHiddenExampleIds = (status: PetStatus) => {
+  if (typeof window === 'undefined') {
+    return []
+  }
+
+  try {
+    const rawIds = window.sessionStorage.getItem(
+      getHiddenExampleStorageKey(status),
+    )
+    const parsedIds = rawIds ? (JSON.parse(rawIds) as unknown) : []
+
+    return Array.isArray(parsedIds)
+      ? parsedIds.filter((id): id is string => typeof id === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+const getInitialHiddenExampleIds = (): Record<PetStatus, string[]> => ({
+  active: getStoredHiddenExampleIds('active'),
+  memorial: getStoredHiddenExampleIds('memorial'),
+})
+
+const setStoredHiddenExampleIds = (status: PetStatus, ids: string[]) => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  window.sessionStorage.setItem(
+    getHiddenExampleStorageKey(status),
+    JSON.stringify(ids),
+  )
+}
+
 const isUserUploadedPhoto = (photo: StoredAlbumPhoto) =>
   photo.id.startsWith('album-upload-') &&
-  (Boolean(photo.imageId) || photo.image.trim().length > 0)
+  (Boolean(photo.imageId) || isValidAlbumImageSource(photo.image))
+
+const isValidAlbumImageSource = (image?: string) => {
+  const source = image?.trim() ?? ''
+
+  return source.length > 0 && source !== 'undefined' && source !== 'null'
+}
 
 const isLegacyDataUrlPhoto = (photo: StoredAlbumPhoto) =>
   !photo.imageId && photo.image.startsWith('data:image/')
@@ -393,8 +439,7 @@ type PhotoCardProps = {
   animate?: boolean
   className?: string
   isFeatured?: boolean
-  onPhotoClick?: (photo: AlbumDisplayPhoto) => void
-  onPhotoDoubleClick?: (
+  onPhotoClick?: (
     photo: AlbumDisplayPhoto,
     event: React.MouseEvent<HTMLElement>,
   ) => void
@@ -407,22 +452,34 @@ const PhotoCard = ({
   className = '',
   isFeatured = false,
   onPhotoClick,
-  onPhotoDoubleClick,
   photo,
   tone,
 }: PhotoCardProps) => (
   <article
     className={`group relative cursor-pointer overflow-hidden rounded-[28px] border border-white/72 bg-white/70 ${tone.glow} backdrop-blur transition duration-200 ease-out hover:-translate-y-0.5 hover:shadow-[0_24px_58px_rgba(87,66,40,0.16)] active:scale-[0.99] ${className}`}
     data-album-photo-card
-    onClick={() => onPhotoClick?.(photo)}
-    onDoubleClick={(event) => onPhotoDoubleClick?.(photo, event)}
+    onClick={(event) => onPhotoClick?.(photo, event)}
+    onDoubleClick={(event) => {
+      event.preventDefault()
+      event.stopPropagation()
+    }}
     onKeyDown={(event) => {
       if (event.key !== 'Enter' && event.key !== ' ') {
         return
       }
 
       event.preventDefault()
-      onPhotoClick?.(photo)
+      if (!onPhotoClick) {
+        return
+      }
+
+      const syntheticClickEvent = {
+        clientX: 0,
+        clientY: 0,
+        detail: 1,
+      } as React.MouseEvent<HTMLElement>
+
+      onPhotoClick(photo, syntheticClickEvent)
     }}
     role="button"
     style={{
@@ -485,13 +542,21 @@ const Album = () => {
     () => ({ ...albumImageSourceCache }),
   )
   const [hasHydratedAlbum, setHasHydratedAlbum] = useState(true)
+  const [hasResolvedAlbumImages, setHasResolvedAlbumImages] = useState(
+    () => !readAlbumPhotos().some(isUserUploadedPhoto),
+  )
   const [carouselIndexes, setCarouselIndexes] = useState(
     getInitialCarouselIndexes,
+  )
+  const [hiddenExamplePhotoIds, setHiddenExamplePhotoIds] = useState(
+    getInitialHiddenExampleIds,
   )
   const [draft, setDraft] = useState<UploadDraft>(createEmptyDraft)
   const [uploadErrors, setUploadErrors] = useState<UploadErrors>({})
   const [drawerMode, setDrawerMode] = useState<AlbumDrawerMode>('add')
   const [editingPhotoId, setEditingPhotoId] = useState<string | null>(null)
+  const [editingExamplePhoto, setEditingExamplePhoto] =
+    useState<AlbumDisplayPhoto | null>(null)
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isClosingDrawer, setIsClosingDrawer] = useState(false)
   const [selectedAlbumPhoto, setSelectedAlbumPhoto] =
@@ -516,10 +581,10 @@ const Album = () => {
             }
 
             if (photo.imageId) {
-              return Boolean(imageSources[photo.id])
+              return isValidAlbumImageSource(imageSources[photo.id])
             }
 
-            return photo.image.trim().length > 0
+            return isValidAlbumImageSource(photo.image)
           })
           .map((photo) =>
             normalizeRealPhoto(
@@ -530,18 +595,17 @@ const Album = () => {
       ),
     [imageSources, photos, status],
   )
-  const realPhotoMetadata = useMemo(
+  const visibleExamplePhotos = useMemo(
     () =>
-      photos.filter(
-        (photo) => photo.status === status && isUserUploadedPhoto(photo),
+      examplePhotos[status].filter(
+        (photo) => !hiddenExamplePhotoIds[status].includes(photo.id),
       ),
-    [photos, status],
+    [hiddenExamplePhotoIds, status],
   )
-  const hasRealPhotoMetadata = realPhotoMetadata.length > 0
-  const isExampleMode = hasHydratedAlbum && !hasRealPhotoMetadata
-  const isAlbumLoading =
-    !hasHydratedAlbum || (hasRealPhotoMetadata && realPhotos.length === 0)
-  const displayPhotos = isExampleMode ? examplePhotos[status] : realPhotos
+  const isExampleMode =
+    hasHydratedAlbum && hasResolvedAlbumImages && realPhotos.length === 0
+  const isAlbumLoading = !hasHydratedAlbum || !hasResolvedAlbumImages
+  const displayPhotos = isExampleMode ? visibleExamplePhotos : realPhotos
   const carouselIndex = carouselIndexes[status] ?? 0
   const safeCarouselIndex = getSafeCarouselIndex(
     carouselIndex,
@@ -573,7 +637,7 @@ const Album = () => {
     ? editingPhoto.imageId
       ? imageSources[editingPhoto.id]
       : editingPhoto.image
-    : ''
+    : editingExamplePhoto?.image ?? ''
   const setCarouselIndexForCurrentStatus = (
     nextIndex:
       | number
@@ -607,53 +671,82 @@ const Album = () => {
     setIsClosingDrawer(false)
     setDrawerMode('add')
     setEditingPhotoId(null)
+    setEditingExamplePhoto(null)
     setSelectedAlbumPhoto(null)
+    actionPopoverRef.current = null
     setActionPopover(null)
     setDraft(createEmptyDraft())
     setUploadErrors({})
-    if (photoClickTimerRef.current) {
-      window.clearTimeout(photoClickTimerRef.current)
-      photoClickTimerRef.current = null
-    }
+    clearPendingPhotoClick()
   }, [status])
+
+  useEffect(
+    () => () => {
+      clearPendingPhotoClick()
+    },
+    [],
+  )
 
   useEffect(() => {
     let isCancelled = false
+    const userPhotos = photos.filter(isUserUploadedPhoto)
+
+    if (userPhotos.length === 0) {
+      setHasResolvedAlbumImages(true)
+      return () => {
+        isCancelled = true
+      }
+    }
+
+    setHasResolvedAlbumImages(false)
 
     const loadStoredAlbumImages = async () => {
-      const entries = await Promise.all(
-        photos.filter(isUserUploadedPhoto).map(async (photo) => {
-          if (!photo.imageId) {
-            return photo.image ? ([photo.id, photo.image] as const) : null
-          }
-
-          try {
-            const imageRecord = await getAlbumImage(photo.imageId)
-
-            if (imageRecord?.dataUrl) {
-              return [photo.id, imageRecord.dataUrl] as const
+      try {
+        const entries = await Promise.all(
+          userPhotos.map(async (photo) => {
+            if (!photo.imageId) {
+              return isValidAlbumImageSource(photo.image)
+                ? ([photo.id, photo.image] as const)
+                : null
             }
-          } catch {
-            return photo.image ? ([photo.id, photo.image] as const) : null
-          }
 
-          return photo.image ? ([photo.id, photo.image] as const) : null
-        }),
-      )
+            try {
+              const imageRecord = await getAlbumImage(photo.imageId)
+              const storedImage = imageRecord?.dataUrl
 
-      if (isCancelled) {
-        return
+              if (isValidAlbumImageSource(storedImage)) {
+                return [photo.id, storedImage] as const
+              }
+            } catch {
+              return isValidAlbumImageSource(photo.image)
+                ? ([photo.id, photo.image] as const)
+                : null
+            }
+
+            return isValidAlbumImageSource(photo.image)
+              ? ([photo.id, photo.image] as const)
+              : null
+          }),
+        )
+
+        if (isCancelled) {
+          return
+        }
+
+        const loadedSources = Object.fromEntries(
+          entries.filter(Boolean) as Array<[string, string]>,
+        )
+
+        Object.assign(albumImageSourceCache, loadedSources)
+        setImageSources((currentSources) => ({
+          ...currentSources,
+          ...loadedSources,
+        }))
+      } finally {
+        if (!isCancelled) {
+          setHasResolvedAlbumImages(true)
+        }
       }
-
-      const loadedSources = Object.fromEntries(
-        entries.filter(Boolean) as Array<[string, string]>,
-      )
-
-      Object.assign(albumImageSourceCache, loadedSources)
-      setImageSources((currentSources) => ({
-        ...currentSources,
-        ...loadedSources,
-      }))
     }
 
     void loadStoredAlbumImages()
@@ -767,7 +860,9 @@ const Album = () => {
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        clearPendingPhotoClick()
         setSelectedAlbumPhoto(null)
+        actionPopoverRef.current = null
         setActionPopover(null)
 
         if (isDrawerOpen) {
@@ -799,6 +894,8 @@ const Album = () => {
         suppressNextPhotoClickRef.current = true
       }
 
+      clearPendingPhotoClick()
+      actionPopoverRef.current = null
       setActionPopover(null)
     }
 
@@ -809,19 +906,13 @@ const Album = () => {
     }
   }, [actionPopover])
 
-  useEffect(
-    () => () => {
-      if (photoClickTimerRef.current) {
-        window.clearTimeout(photoClickTimerRef.current)
-      }
-    },
-    [],
-  )
-
   const openDrawer = () => {
+    clearPendingPhotoClick()
     setDrawerMode('add')
     setEditingPhotoId(null)
+    setEditingExamplePhoto(null)
     setSelectedAlbumPhoto(null)
+    actionPopoverRef.current = null
     setActionPopover(null)
     setDraft(createEmptyDraft())
     setUploadErrors({})
@@ -830,24 +921,22 @@ const Album = () => {
   }
 
   const openEditDrawer = (photo: AlbumDisplayPhoto) => {
+    clearPendingPhotoClick()
     const storedPhoto = photos.find((currentPhoto) => currentPhoto.id === photo.id)
 
-    if (!storedPhoto || storedPhoto.status !== status) {
+    if (!photo.isExample && (!storedPhoto || storedPhoto.status !== status)) {
       return
     }
 
-    if (photoClickTimerRef.current) {
-      window.clearTimeout(photoClickTimerRef.current)
-      photoClickTimerRef.current = null
-    }
-
     setDrawerMode('edit')
-    setEditingPhotoId(storedPhoto.id)
+    setEditingPhotoId(storedPhoto?.id ?? photo.id)
+    setEditingExamplePhoto(photo.isExample ? photo : null)
     setSelectedAlbumPhoto(null)
+    actionPopoverRef.current = null
     setActionPopover(null)
     setDraft({
-      date: normalizeDateForInput(storedPhoto.date),
-      note: storedPhoto.note?.trim() || '',
+      date: normalizeDateForInput(storedPhoto?.date ?? photo.date),
+      note: storedPhoto?.note?.trim() || photo.title || '',
       photos: [],
     })
     setUploadErrors({})
@@ -862,6 +951,7 @@ const Album = () => {
       setIsClosingDrawer(false)
       setDrawerMode('add')
       setEditingPhotoId(null)
+      setEditingExamplePhoto(null)
       setDraft(createEmptyDraft())
       setUploadErrors({})
       if (fileInputRef.current) {
@@ -897,52 +987,98 @@ const Album = () => {
     input.click()
   }
 
-  const handlePhotoClick = (photo: AlbumDisplayPhoto) => {
-    if (photoClickTimerRef.current) {
-      window.clearTimeout(photoClickTimerRef.current)
-      photoClickTimerRef.current = null
-    }
-
-    if (actionPopoverRef.current || suppressNextPhotoClickRef.current) {
-      suppressNextPhotoClickRef.current = false
-      setActionPopover(null)
+  const clearPendingPhotoClick = () => {
+    if (!photoClickTimerRef.current) {
       return
     }
 
-    photoClickTimerRef.current = window.setTimeout(() => {
-      setActionPopover(null)
-      setSelectedAlbumPhoto(photo)
-      photoClickTimerRef.current = null
-    }, 220)
+    window.clearTimeout(photoClickTimerRef.current)
+    photoClickTimerRef.current = null
   }
 
-  const handlePhotoDoubleClick = (
+  const openPhotoActionPopover = (
+    photo: AlbumDisplayPhoto,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const nextPopover = {
+      mode: 'actions',
+      photo,
+      position: getActionPopoverPosition(clientX, clientY),
+    } satisfies AlbumActionPopover
+
+    clearPendingPhotoClick()
+    setSelectedAlbumPhoto(null)
+    suppressNextPhotoClickRef.current = false
+    actionPopoverRef.current = nextPopover
+    setActionPopover(nextPopover)
+  }
+
+  const closePhotoDetail = () => {
+    clearPendingPhotoClick()
+    setSelectedAlbumPhoto(null)
+  }
+
+  const handlePhotoClick = (
     photo: AlbumDisplayPhoto,
     event: React.MouseEvent<HTMLElement>,
   ) => {
-    event.preventDefault()
     event.stopPropagation()
 
-    if (photoClickTimerRef.current) {
-      window.clearTimeout(photoClickTimerRef.current)
-      photoClickTimerRef.current = null
+    if (event.detail >= 2) {
+      clearPendingPhotoClick()
+      suppressNextPhotoClickRef.current = false
+      openPhotoActionPopover(photo, event.clientX, event.clientY)
+      return
     }
 
-    setSelectedAlbumPhoto(null)
-
-    if (photo.isExample) {
+    if (actionPopoverRef.current || suppressNextPhotoClickRef.current) {
+      clearPendingPhotoClick()
+      suppressNextPhotoClickRef.current = false
+      actionPopoverRef.current = null
       setActionPopover(null)
       return
     }
 
-    setActionPopover({
-      mode: 'actions',
-      photo,
-      position: getActionPopoverPosition(event.clientX, event.clientY),
-    })
+    clearPendingPhotoClick()
+    photoClickTimerRef.current = window.setTimeout(() => {
+      actionPopoverRef.current = null
+      setActionPopover(null)
+      setSelectedAlbumPhoto(null)
+      setSelectedAlbumPhoto(photo)
+      photoClickTimerRef.current = null
+    }, photoClickDelayMs)
   }
 
-  const deletePhoto = async (photoId: string) => {
+  const deletePhoto = async (photo: AlbumDisplayPhoto) => {
+    if (photo.isExample) {
+      setHiddenExamplePhotoIds((currentIdsByStatus) => {
+        const currentIds = currentIdsByStatus[status]
+        const nextIds = currentIds.includes(photo.id)
+          ? currentIds
+          : [...currentIds, photo.id]
+
+        setStoredHiddenExampleIds(status, nextIds)
+
+        return {
+          ...currentIdsByStatus,
+          [status]: nextIds,
+        }
+      })
+
+      if (selectedAlbumPhoto?.id === photo.id) {
+        setSelectedAlbumPhoto(null)
+      }
+
+      setCarouselIndexForCurrentStatus(
+        Math.min(safeCarouselIndex, Math.max(0, displayPhotos.length - 2)),
+      )
+      setActionPopover(null)
+      actionPopoverRef.current = null
+      return
+    }
+
+    const photoId = photo.id
     const photoToDelete = photos.find((photo) => photo.id === photoId)
 
     if (!photoToDelete || photoToDelete.status !== status) {
@@ -987,6 +1123,7 @@ const Album = () => {
         ? Math.min(safeCarouselIndex, nextStatusPhotoCount - 1)
         : 0,
     )
+    actionPopoverRef.current = null
     setActionPopover(null)
   }
 
@@ -1080,6 +1217,41 @@ const Album = () => {
     const note = draft.note.trim()
 
     if (drawerMode === 'edit') {
+      if (editingExamplePhoto) {
+        const photoId = `album-upload-${status}-${Date.now()}-example`
+        const createdAt = new Date().toISOString()
+        const convertedPhoto: StoredAlbumPhoto = {
+          createdAt,
+          date: draft.date,
+          id: photoId,
+          image: editingExamplePhoto.image,
+          isFavorite: false,
+          note,
+          petId: pet.id,
+          status,
+          title: note || '未添加简介',
+        }
+        const nextPhotos = [convertedPhoto, ...photos]
+
+        try {
+          setStorageItem(STORAGE_KEYS.albumPhotos, nextPhotos)
+          setPhotos(nextPhotos)
+          setImageSources((currentSources) => ({
+            ...currentSources,
+            [convertedPhoto.id]: convertedPhoto.image,
+          }))
+          setCarouselIndexForCurrentStatus(0)
+          closeDrawer()
+        } catch {
+          setUploadErrors((currentErrors) => ({
+            ...currentErrors,
+            photos: '照片保存失败，请稍后重试',
+          }))
+        }
+
+        return
+      }
+
       if (!editingPhotoId) {
         return
       }
@@ -1344,23 +1516,32 @@ const Album = () => {
 
         <div className="album-scroll-area min-h-0 flex-1 overflow-y-auto pr-1">
           <section className="grid h-full min-h-0 grid-cols-[minmax(0,1.18fr)_minmax(300px,0.82fr)] gap-4 pb-2">
-            {isAlbumLoading || !featuredPhoto ? (
+            {isAlbumLoading ? (
               <PhotoSkeleton className="h-full min-h-0" tone={tone} />
-            ) : (
+            ) : featuredPhoto ? (
               <PhotoCard
                 animate={shouldAnimateFeaturedPhoto}
                 className="h-full min-h-0"
                 isFeatured
                 key={featuredPhoto.id}
                 onPhotoClick={handlePhotoClick}
-                onPhotoDoubleClick={handlePhotoDoubleClick}
                 photo={featuredPhoto}
                 tone={tone}
               />
+            ) : (
+              <div
+                className={`flex h-full min-h-0 items-center justify-center rounded-[28px] border border-dashed ${tone.accentBorder} bg-white/46 px-8 text-center ${tone.glow}`}
+              >
+                <p className="text-sm font-bold leading-7 text-stone-500">
+                  暂无可展示照片
+                  <br />
+                  可以点击右上角添加照片
+                </p>
+              </div>
             )}
 
             <div className="grid h-full min-h-0 grid-cols-2 grid-rows-3 gap-4">
-              {isAlbumLoading || !featuredPhoto ? (
+              {isAlbumLoading ? (
                 Array.from({ length: 5 }, (_, index) => (
                   <PhotoSkeleton
                     className={`min-h-0 ${index === 4 ? 'col-span-2' : ''}`}
@@ -1376,7 +1557,6 @@ const Album = () => {
                     }`}
                     key={photo.id}
                     onPhotoClick={handlePhotoClick}
-                    onPhotoDoubleClick={handlePhotoDoubleClick}
                     photo={photo}
                     tone={tone}
                   />
@@ -1402,7 +1582,6 @@ const Album = () => {
                   className="h-36"
                   key={photo.id}
                   onPhotoClick={handlePhotoClick}
-                  onPhotoDoubleClick={handlePhotoDoubleClick}
                   photo={photo}
                   tone={tone}
                 />
@@ -1415,7 +1594,7 @@ const Album = () => {
       {actionPopover
         ? createPortal(
             <div
-              className="fixed z-[75] w-[168px] rounded-[18px] border border-white/80 bg-white/95 p-3 shadow-[0_18px_42px_rgba(47,28,8,0.18)] backdrop-blur"
+              className="fixed z-[120] w-[168px] rounded-[18px] border border-white/80 bg-white/95 p-3 shadow-[0_18px_42px_rgba(47,28,8,0.18)] backdrop-blur"
               data-album-photo-action-popover
               onClick={(event) => event.stopPropagation()}
               onPointerDown={(event) => event.stopPropagation()}
@@ -1448,7 +1627,7 @@ const Album = () => {
                     <button
                       className={`h-8 flex-1 cursor-pointer rounded-full text-xs font-black text-white transition duration-150 ease-out hover:-translate-y-0.5 active:scale-[0.97] ${tone.button}`}
                       onClick={() => {
-                        void deletePhoto(actionPopover.photo.id)
+                        void deletePhoto(actionPopover.photo)
                       }}
                       type="button"
                     >
@@ -1489,7 +1668,7 @@ const Album = () => {
         ? createPortal(
             <div
               className="fixed inset-0 z-[100]"
-              onClick={() => setSelectedAlbumPhoto(null)}
+              onClick={closePhotoDetail}
             >
               <div
                 className="absolute inset-0 bg-black/38"
@@ -1517,7 +1696,10 @@ const Album = () => {
                   <button
                     aria-label="关闭照片详情"
                     className={`flex h-9 w-9 shrink-0 cursor-pointer items-center justify-center rounded-full bg-white/80 text-lg font-black text-stone-500 shadow-sm transition duration-200 ease-out hover:-translate-y-0.5 hover:scale-105 hover:shadow-md active:scale-95 ${tone.hover}`}
-                    onClick={() => setSelectedAlbumPhoto(null)}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      closePhotoDetail()
+                    }}
                     type="button"
                   >
                     ×

@@ -153,6 +153,145 @@ const defaultTimelineEvents: TimelineEvent[] = [
   },
 ]
 
+const demoTimelineRuntimeSeedKeys = new Set<string>()
+
+const createDemoTimelineEvents = (
+  petType: 'cat' | 'dog',
+  petId: string,
+): TimelineEvent[] => {
+  const activeEvents =
+    petType === 'dog'
+      ? [
+          {
+            date: '2023-09-23',
+            id: 'active-demo-dog-first-home',
+            image: '/images/auth/album-page/bed.png',
+            note: '第一次把 TA 接回家，小小一只却把家里填得很满。',
+            title: '第一次回家',
+          },
+          {
+            date: '2026-06-22',
+            id: 'active-demo-dog-first-walk',
+            image: '/images/auth/album-page/play.png',
+            note: '第一次牵着 TA 出门散步，东闻闻西看看，像认识了整个世界。',
+            title: '第一次散步',
+          },
+          {
+            date: '2026-06-03',
+            id: 'active-demo-dog-park',
+            image: '/images/auth/album-page/garden.png',
+            note: '在公园里追着风跑了一会儿，留下了一段轻松的小回忆。',
+            title: '第一次去公园',
+          },
+          {
+            date: '2025-09-23',
+            id: 'active-demo-dog-birthday',
+            image: '/images/auth/album-page/birthday.png',
+            note: '给 TA 准备了小蛋糕，记录又长大一岁的日子。',
+            title: '生日小记录',
+          },
+        ]
+      : [
+          {
+            date: '2023-09-23',
+            id: 'active-demo-cat-first-home',
+            image: '/images/auth/album-page/bed.png',
+            note: '第一次把 TA 接回家，小小一只却把家里填得很满。',
+            title: '第一次回家',
+          },
+          {
+            date: '2026-06-22',
+            id: 'active-demo-cat-scratch-board',
+            image: '/images/auth/album-page/play.png',
+            note: '第一次认真研究猫抓板，抓一下、看一眼，像在宣布这是自己的新领地。',
+            title: '第一次玩猫抓板',
+          },
+          {
+            date: '2026-06-03',
+            id: 'active-demo-cat-garden',
+            image: '/images/auth/album-page/garden.png',
+            note: '在花园里闻闻草地、看看蝴蝶，留下了一段轻松的小回忆。',
+            title: '花园里的小探险',
+          },
+          {
+            date: '2025-09-23',
+            id: 'active-demo-cat-birthday',
+            image: '/images/auth/album-page/birthday.png',
+            note: '给 TA 准备了小蛋糕，记录又长大一岁的日子。',
+            title: '生日小记录',
+          },
+        ]
+
+  const memorialEvents =
+    petType === 'dog'
+      ? [
+          {
+            date: '2019-06-22',
+            id: 'memorial-demo-dog-first-home',
+            image: '/images/auth/album-page/memorial1.png',
+            note: '那一天 TA 来到家里，也从那天开始成为家人。',
+            title: '第一次回家',
+          },
+          {
+            date: '2021-04-18',
+            id: 'memorial-demo-dog-afternoon',
+            image: '/images/auth/album-page/memorial2.png',
+            note: '阳光落在窗边，TA 安静地趴在那里，是很温柔的一段回忆。',
+            title: '最喜欢的午后',
+          },
+          {
+            date: '2023-09-23',
+            id: 'memorial-demo-dog-birthday',
+            image: '/images/auth/album-page/memorial3.png',
+            note: '那天给 TA 准备了小小的仪式，想把这份记忆认真保存下来。',
+            title: '生日那天',
+          },
+          {
+            date: '2025-11-08',
+            id: 'memorial-demo-dog-last-walk',
+            image: '/images/auth/album-page/memorial4.png',
+            note: '那天走得很慢，但每一步都很珍贵。',
+            title: '最后一次散步',
+          },
+        ]
+      : [
+          {
+            date: '2019-06-22',
+            id: 'memorial-demo-cat-first-home',
+            image: '/images/auth/album-page/memorial1.png',
+            note: '那一天 TA 来到家里，也从那天开始成为家人。',
+            title: '第一次回家',
+          },
+          {
+            date: '2021-04-18',
+            id: 'memorial-demo-cat-afternoon',
+            image: '/images/auth/album-page/memorial2.png',
+            note: '阳光落在窗边，TA 安静地趴在那里，是很温柔的一段回忆。',
+            title: '最喜欢的午后',
+          },
+          {
+            date: '2023-09-23',
+            id: 'memorial-demo-cat-birthday',
+            image: '/images/auth/album-page/memorial3.png',
+            note: '那天给 TA 准备了小小的仪式，想把这份记忆认真保存下来。',
+            title: '生日那天',
+          },
+          {
+            date: '2025-11-08',
+            id: 'memorial-demo-cat-window',
+            image: '/images/auth/album-page/memorial4.png',
+            note: '窗边那块阳光还在，想起 TA 曾经安静陪着我们的许多时刻。',
+            title: '窗边的小日子',
+          },
+        ]
+
+  return [...activeEvents, ...memorialEvents].map((event) => ({
+    ...event,
+    petId,
+    status: event.id.startsWith('active-demo-') ? 'active' : 'memorial',
+  }))
+}
+
 const emptyDraft: TimelineDraft = {
   date: '',
   image: '',
@@ -246,10 +385,28 @@ const saveDeletedTimelineEventIds = (eventIds: string[]) => {
   }
 }
 
-const readTimelineEvents = () => {
+const clearDeletedTimelineEventIds = () => {
+  if (typeof window === 'undefined') {
+    return
+  }
+
+  try {
+    window.localStorage.removeItem(deletedTimelineStorageKey)
+  } catch {
+    // localStorage is best-effort for this front-end demo.
+  }
+}
+
+const isDemoTimelineEventId = (eventId: string) =>
+  eventId.startsWith('active-demo-') ||
+  eventId.startsWith('memorial-demo-') ||
+  defaultTimelineEvents.some((event) => event.id === eventId)
+
+const readTimelineEvents = (petType: 'cat' | 'dog', petId: string) => {
+  const defaultEvents = createDemoTimelineEvents(petType, petId)
   const savedEvents = getStorageItem<TimelineEvent[]>(timelineStorageKey, [])
   const deletedEventIds = new Set(readDeletedTimelineEventIds())
-  const visibleDefaultEvents = defaultTimelineEvents.filter(
+  const visibleDefaultEvents = defaultEvents.filter(
     (event) => !deletedEventIds.has(event.id),
   )
 
@@ -257,7 +414,6 @@ const readTimelineEvents = () => {
     return visibleDefaultEvents
   }
 
-  const defaultIds = new Set(defaultTimelineEvents.map((event) => event.id))
   const legacySeedIds = new Set(mockTimelineEvents.map((event) => event.id))
   const savedEventsById = new Map(savedEvents.map((event) => [event.id, event]))
   const mergedDefaultEvents = visibleDefaultEvents.map(
@@ -265,12 +421,30 @@ const readTimelineEvents = () => {
   )
   const savedUserEvents = savedEvents.filter(
     (event) =>
-      !defaultIds.has(event.id) &&
+      !isDemoTimelineEventId(event.id) &&
       !legacySeedIds.has(event.id) &&
       !deletedEventIds.has(event.id),
   )
 
   return [...mergedDefaultEvents, ...savedUserEvents]
+}
+
+const initializeDemoTimelineEvents = (petType: 'cat' | 'dog', petId: string) => {
+  const seedKey = `${petId}:${petType}`
+
+  if (typeof window === 'undefined') {
+    return createDemoTimelineEvents(petType, petId)
+  }
+
+  if (!demoTimelineRuntimeSeedKeys.has(seedKey)) {
+    const demoEvents = createDemoTimelineEvents(petType, petId)
+    clearDeletedTimelineEventIds()
+    setStorageItem(timelineStorageKey, demoEvents)
+    demoTimelineRuntimeSeedKeys.add(seedKey)
+    return demoEvents
+  }
+
+  return readTimelineEvents(petType, petId)
 }
 
 const formatTimelineDate = (date: string) => date.replaceAll('-', '.')
@@ -516,7 +690,9 @@ const Timeline = () => {
   const { pet, status } = useMainPetLayout()
   const isMemorial = status === 'memorial'
   const tone = timelineTones[status]
-  const [events, setEvents] = useState<TimelineEvent[]>(readTimelineEvents)
+  const [events, setEvents] = useState<TimelineEvent[]>(() =>
+    initializeDemoTimelineEvents(pet.type, pet.id),
+  )
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   const [isCalendarOpen, setIsCalendarOpen] = useState(false)
   const [draft, setDraft] = useState<TimelineDraft>(emptyDraft)
@@ -564,6 +740,10 @@ const Timeline = () => {
   const pendingDeleteEvent = pendingDeleteEventId
     ? visibleEvents.find((event) => event.id === pendingDeleteEventId) || null
     : null
+
+  useEffect(() => {
+    setEvents(initializeDemoTimelineEvents(pet.type, pet.id))
+  }, [pet.id, pet.type])
 
   const closeDeleteConfirm = () => {
     setPendingDeleteEventId(null)
@@ -716,7 +896,7 @@ const Timeline = () => {
   }
 
   const deleteTimelineEvent = (eventId: string) => {
-    if (defaultTimelineEvents.some((event) => event.id === eventId)) {
+    if (isDemoTimelineEventId(eventId)) {
       saveDeletedTimelineEventIds([
         ...new Set([...readDeletedTimelineEventIds(), eventId]),
       ])
@@ -991,14 +1171,28 @@ const Timeline = () => {
             } as React.CSSProperties}
           >
             <div className="relative grid grid-cols-[82px_minmax(0,1fr)] gap-x-5 gap-y-3 pb-2">
-              <div
-                className={`pointer-events-none absolute bottom-5 left-[41px] top-5 -translate-x-1/2 border-l-4 border-dashed ${tone.line}`}
-              />
-            {visibleEvents.map((event, index) => (
+            {visibleEvents.map((event, index) => {
+              const isFirstNode = index === 0
+              const isLastNode = index === visibleEvents.length - 1
+
+              return (
               <div className="contents" key={event.id}>
                 <div className="relative z-10 flex items-center justify-center py-3">
+                  {!isMemorial && isFirstNode ? (
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute bottom-1/2 left-1/2 z-0 h-8 -translate-x-1/2 border-l-4 border-dashed ${tone.line}`}
+                    />
+                  ) : null}
+                  {!isLastNode ? (
+                    <span
+                      aria-hidden="true"
+                      className={`pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 border-l-4 border-dashed ${tone.line}`}
+                      style={{ height: 'calc(100% + 0.75rem)' }}
+                    />
+                  ) : null}
                   <span
-                    className={`flex h-10 w-10 items-center justify-center rounded-full border-2 bg-white shadow-[0_10px_24px_rgba(87,66,40,0.14)] transition duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] ${tone.line}`}
+                    className={`relative z-10 flex h-10 w-10 items-center justify-center rounded-full border-2 bg-white shadow-[0_10px_24px_rgba(87,66,40,0.14)] transition duration-200 ease-out hover:-translate-y-0.5 active:scale-[0.97] ${tone.line}`}
                   >
                     <img
                       alt=""
@@ -1114,7 +1308,8 @@ const Timeline = () => {
                 </div>
               </article>
               </div>
-            ))}
+              )
+            })}
             </div>
           </div>
         </section>

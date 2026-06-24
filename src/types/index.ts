@@ -6,6 +6,12 @@ export type PetSex = 'male' | 'female'
 
 export type PetNeuteredStatus = 'neutered' | 'not_neutered'
 
+export type AiReferenceImageMeta = {
+  id: string
+  imageId: string
+  createdAt: string
+}
+
 export type User = {
   id: string
   username: string
@@ -25,6 +31,12 @@ export type Pet = {
   birthday: string
   arrivalDate?: string
   memorialDate?: string
+  modelReferenceImageUrl?: string
+  modelReferenceImages?: Array<AiReferenceImageMeta | string>
+  aiModelGenerated?: boolean
+  aiModelGeneratedAt?: string
+  aiModelSpecies?: PetType
+  aiModelUrl?: string
 }
 
 export type TimelineEvent = {

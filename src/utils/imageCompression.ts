@@ -23,6 +23,11 @@ export type CompressedImage = {
   mimeType: string
 }
 
+export type CompressImageOptions = {
+  maxSide?: number
+  quality?: number
+}
+
 const readFileAsDataUrl = (file: File) =>
   new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
@@ -52,6 +57,7 @@ const loadImage = (dataUrl: string) =>
 
 export const compressImage = async (
   file: File,
+  options: CompressImageOptions = {},
 ): Promise<CompressedImage> => {
   if (!supportedImageTypes.includes(file.type)) {
     throw new ImageCompressionError('unsupported-type')
@@ -64,7 +70,8 @@ export const compressImage = async (
   try {
     const dataUrl = await readFileAsDataUrl(file)
     const image = await loadImage(dataUrl)
-    const maxSide = 1600
+    const maxSide = options.maxSide ?? 1600
+    const quality = options.quality ?? 0.82
     const sourceWidth = image.naturalWidth || image.width
     const sourceHeight = image.naturalHeight || image.height
     const scale = Math.min(1, maxSide / Math.max(sourceWidth, sourceHeight))
@@ -86,7 +93,7 @@ export const compressImage = async (
     context.drawImage(image, 0, 0, width, height)
 
     return {
-      dataUrl: canvas.toDataURL('image/jpeg', 0.82),
+      dataUrl: canvas.toDataURL('image/jpeg', quality),
       mimeType: 'image/jpeg',
     }
   } catch (error) {

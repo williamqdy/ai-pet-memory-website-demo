@@ -1,13 +1,23 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode, RefObject } from 'react'
 import type {
+  AiReferenceImageMeta,
   Pet,
   PetNeuteredStatus,
   PetSex,
   PetStatus,
   PetType,
 } from '../types'
+import AIModelGenerationModal from '../components/AIModelGenerationModal'
+import PetModelViewer from '../components/PetModelViewer'
 import { navigateTo } from '../utils/navigation'
+import type { AiReferenceImageView } from '../utils/aiReferenceImages'
+import {
+  deleteAiReferenceImagesByMeta,
+  getAiReferenceUploadErrorMessage,
+  saveAiReferenceFile,
+} from '../utils/aiReferenceImages'
+import { assignRandomPetModel } from '../utils/petModels'
 import { setPetStatus, setStorageItem, STORAGE_KEYS } from '../utils/storage'
 
 type OptionCardProps = {
@@ -15,6 +25,7 @@ type OptionCardProps = {
   children?: ReactNode
   className?: string
   icon: string
+  iconImageClassName?: string
   onClick?: () => void
   showArrow?: boolean
   subtitle: string
@@ -31,8 +42,12 @@ type OptionCardTone = {
 type DateField = 'birthday' | 'arrival' | 'memorial'
 
 type CreatePetProfile = Pet & {
+  aiModelGenerated?: boolean
+  aiModelGeneratedAt?: string
+  aiModelSpecies?: PetType
+  aiModelUrl?: string
   modelReferenceImageUrl?: string
-  modelReferenceImages?: string[]
+  modelReferenceImages?: AiReferenceImageMeta[]
 }
 
 const sexOptions: Array<{ label: string; value: PetSex }> = [
@@ -276,6 +291,7 @@ const OptionCard = ({
   children,
   className = '',
   icon,
+  iconImageClassName = 'h-9 w-9 select-none object-contain',
   onClick,
   showArrow = true,
   subtitle,
@@ -288,12 +304,12 @@ const OptionCard = ({
   >
     <span className="flex items-center gap-2.5">
       <span
-        className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ${tone.iconBg} shadow-inner`}
+        className={`flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl ${tone.iconBg} shadow-inner`}
       >
         <img
           alt=""
           aria-hidden="true"
-          className="h-9 w-9 select-none object-contain"
+          className={iconImageClassName}
           src={icon}
         />
       </span>
@@ -567,7 +583,15 @@ const CreatePet = () => {
   const [arrivalDate, setArrivalDate] = useState(getToday())
   const [memorialDate, setMemorialDate] = useState('')
   const [avatarPreview, setAvatarPreview] = useState('')
-  const [modelReferenceImages, setModelReferenceImages] = useState<string[]>([])
+  const [modelReferenceImages, setModelReferenceImages] = useState<
+    AiReferenceImageView[]
+  >([])
+  const [modelReferenceError, setModelReferenceError] = useState('')
+  const [assignedModelUrl, setAssignedModelUrl] = useState('')
+  const [assignedModelGeneratedAt, setAssignedModelGeneratedAt] = useState('')
+  const [assignedModelSpecies, setAssignedModelSpecies] =
+    useState<PetType | null>(null)
+  const [isGenerationModalOpen, setIsGenerationModalOpen] = useState(false)
   const [isModelReferencePanelOpen, setIsModelReferencePanelOpen] =
     useState(false)
   const breedDropdownRef = useRef<HTMLDivElement | null>(null)
@@ -627,6 +651,17 @@ const CreatePet = () => {
   }, [isModelReferencePanelOpen])
 
   const handleTypeChange = (type: PetType) => {
+    if (type !== petType && (modelReferenceImages.length > 0 || assignedModelUrl)) {
+      void deleteAiReferenceImagesByMeta(modelReferenceImages)
+      setModelReferenceImages([])
+      setModelReferenceError('')
+      setAssignedModelUrl('')
+      setAssignedModelGeneratedAt('')
+      setAssignedModelSpecies(null)
+      setIsGenerationModalOpen(false)
+      setIsModelReferencePanelOpen(false)
+    }
+
     setPetType(type)
     setIsBreedDropdownOpen(false)
     setActiveCalendar(null)
@@ -664,10 +699,11 @@ const CreatePet = () => {
     setAvatarPreview(URL.createObjectURL(file))
   }
 
-  const handleModelReferenceChange = (
+  const handleModelReferenceChange = async (
     event: ChangeEvent<HTMLInputElement>,
   ) => {
     const files = Array.from(event.target.files || [])
+    event.target.value = ''
 
     if (files.length === 0) {
       return
@@ -676,37 +712,76 @@ const CreatePet = () => {
     const invalidFile = files.find((file) => !allowedImageTypes.has(file.type))
 
     if (invalidFile) {
-      window.alert('请上传图片文件')
-      event.target.value = ''
+      setModelReferenceError('请上传 JPG、PNG 或 WEBP 格式的图片')
       return
     }
 
-    setModelReferenceImages((images) => {
-      const remainingSlots = maxModelReferenceImages - images.length
+    const remainingSlots = maxModelReferenceImages - modelReferenceImages.length
 
-      if (remainingSlots <= 0) {
-        window.alert('最多上传 3 张参考图')
-        return images
+    if (remainingSlots <= 0) {
+      setModelReferenceError('最多上传 3 张参考图')
+      return
+    }
+
+    try {
+      const uploadedImages: AiReferenceImageView[] = []
+
+      for (const file of files.slice(0, remainingSlots)) {
+        uploadedImages.push(await saveAiReferenceFile(file))
       }
 
-      if (files.length > remainingSlots) {
-        window.alert('最多上传 3 张参考图')
-      }
+      setModelReferenceImages((images) => [...images, ...uploadedImages])
+      setModelReferenceError(
+        files.length > remainingSlots ? '最多上传 3 张参考图' : '',
+      )
 
-      return [
-        ...images,
-        ...files.slice(0, remainingSlots).map((file) => URL.createObjectURL(file)),
-      ]
-    })
-    event.target.value = ''
+      if (!assignedModelUrl || assignedModelSpecies !== petType) {
+        setIsGenerationModalOpen(true)
+      }
+    } catch (error) {
+      setModelReferenceError(getAiReferenceUploadErrorMessage(error))
+    }
   }
 
-  const removeModelReferenceImage = (image: string) => {
-    setModelReferenceImages((images) => images.filter((item) => item !== image))
+  const removeModelReferenceImage = (image: AiReferenceImageView) => {
+    setModelReferenceImages((images) => {
+      const nextImages = images.filter((item) => item.id !== image.id)
+
+      if (nextImages.length === 0) {
+        setAssignedModelUrl('')
+        setAssignedModelGeneratedAt('')
+        setAssignedModelSpecies(null)
+      }
+
+      return nextImages
+    })
+    setModelReferenceError('')
+    void deleteAiReferenceImagesByMeta([image])
+  }
+
+  const handleGenerationComplete = () => {
+    setAssignedModelUrl((currentModelUrl) =>
+      currentModelUrl && assignedModelSpecies === petType
+        ? currentModelUrl
+        : assignRandomPetModel(petType),
+    )
+    setAssignedModelGeneratedAt((currentGeneratedAt) =>
+      currentGeneratedAt && assignedModelSpecies === petType
+        ? currentGeneratedAt
+        : new Date().toISOString(),
+    )
+    setAssignedModelSpecies(petType)
+    setIsGenerationModalOpen(false)
+    setIsModelReferencePanelOpen(false)
   }
 
   const buildPet = (): CreatePetProfile => {
     const trimmedName = name.trim()
+    const hasValidGeneratedModel = Boolean(
+      assignedModelUrl &&
+        assignedModelSpecies === petType &&
+        modelReferenceImages.length > 0,
+    )
 
     return {
       id: `pet-${Date.now()}`,
@@ -716,8 +791,17 @@ const CreatePet = () => {
       sex,
       neuteredStatus,
       avatar: avatarPreview,
-      modelReferenceImageUrl: modelReferenceImages[0] || '',
-      modelReferenceImages,
+      aiModelGenerated: hasValidGeneratedModel,
+      aiModelGeneratedAt:
+        hasValidGeneratedModel
+          ? assignedModelGeneratedAt || new Date().toISOString()
+          : undefined,
+      aiModelSpecies: hasValidGeneratedModel ? assignedModelSpecies ?? undefined : undefined,
+      aiModelUrl: hasValidGeneratedModel ? assignedModelUrl : '',
+      modelReferenceImageUrl: '',
+      modelReferenceImages: modelReferenceImages.map(
+        ({ dataUrl: _dataUrl, ...metadata }) => metadata,
+      ),
       status,
       birthday: birthday || getToday(),
       ...(status === 'active'
@@ -776,6 +860,10 @@ const CreatePet = () => {
     neuteredStatusOptions.find((option) => option.value === neuteredStatus)
       ?.label || '未绝育'
   const modelReferenceCount = modelReferenceImages.length
+  const hasGeneratedModel =
+    assignedModelUrl.trim().length > 0 &&
+    assignedModelSpecies === petType &&
+    modelReferenceCount > 0
   const modalRows = [
     { label: '名字', value: petName },
     { label: '类型', value: petTypeLabel },
@@ -892,6 +980,7 @@ const CreatePet = () => {
         className={`pointer-events-none absolute inset-0 h-full w-full select-none object-cover object-center transition-opacity duration-500 ease-out ${
           status === 'memorial' ? 'opacity-100' : 'opacity-0'
         }`}
+        style={{ objectPosition: 'center calc(50% + 15px)' }}
         src="/images/auth/create-pet-page/background-memorial.png"
       />
 
@@ -1129,23 +1218,33 @@ const CreatePet = () => {
 
           <div className="relative mx-auto flex h-[min(52vh,440px)] w-full max-w-[560px] items-center justify-center">
             <div className="group relative h-[min(48vh,420px)] w-[clamp(360px,34vw,560px)] -translate-y-[38px] scale-[0.93]">
-              <img
-                alt=""
-                aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
-                  status === 'active' ? 'opacity-100' : 'opacity-0'
-                }`}
-                src="/images/auth/create-pet-page/dashed-active.png"
-              />
-              <img
-                alt=""
-                aria-hidden="true"
-                className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
-                  status === 'memorial' ? 'opacity-100' : 'opacity-0'
-                }`}
-                src="/images/auth/create-pet-page/dashed-memorial.png"
-              />
-              {modelReferenceCount > 0 ? (
+              {!hasGeneratedModel ? (
+                <>
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
+                      status === 'active' ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    src="/images/auth/create-pet-page/dashed-active.png"
+                  />
+                  <img
+                    alt=""
+                    aria-hidden="true"
+                    className={`pointer-events-none absolute inset-0 h-full w-full select-none object-contain transition duration-300 ease-out group-hover:scale-[1.015] ${
+                      status === 'memorial' ? 'opacity-100' : 'opacity-0'
+                    }`}
+                    src="/images/auth/create-pet-page/dashed-memorial.png"
+                  />
+                </>
+              ) : null}
+              {hasGeneratedModel ? (
+                <PetModelViewer
+                  alt={`${petName} 的 AI 3D 宠物形象`}
+                  className="absolute left-1/2 top-[calc(43%+1cm)] z-[6] h-[min(57.33vh,492px)] w-[min(45.864vw,540px)] -translate-x-1/2 -translate-y-1/2 transition duration-300 ease-out"
+                  modelUrl={assignedModelUrl}
+                />
+              ) : modelReferenceCount > 0 ? (
                 <div className="pointer-events-none absolute left-1/2 top-[43%] z-[5] flex -translate-x-1/2 -translate-y-1/2 gap-2 rounded-[26px] bg-white/45 p-2 shadow-[0_18px_42px_rgba(74,48,20,0.16)] backdrop-blur-sm transition duration-300 ease-out group-hover:scale-[1.015]">
                   {modelReferenceImages.map((image, index) => (
                     <img
@@ -1153,45 +1252,47 @@ const CreatePet = () => {
                       className={`rounded-[20px] border border-white/80 object-cover shadow-sm ${
                         modelReferenceCount === 1 ? 'h-40 w-40' : 'h-24 w-24'
                       }`}
-                      key={image}
-                      src={image}
+                      key={image.id}
+                      src={image.dataUrl}
                     />
                   ))}
                 </div>
               ) : null}
-              <button
-                aria-label="上传参考照片用于生成 AI 宠物形象"
-                className={`absolute inset-0 z-10 flex cursor-pointer justify-center rounded-[34px] text-center outline-none transition duration-300 ease-out focus-visible:ring-4 focus-visible:ring-white/80 ${
-                  modelReferenceCount > 0 ? 'items-end pb-12' : 'items-center'
-                }`}
-                onClick={() => {
-                  if (!isModelReferencePanelOpen) {
-                    setIsModelReferencePanelOpen(true)
-                  }
-                }}
-                type="button"
-              >
-                <span
-                  className={`rounded-full border border-white/80 bg-white/76 px-5 py-3 shadow-[0_14px_34px_rgba(87,66,40,0.16)] backdrop-blur transition duration-300 ease-out group-hover:-translate-y-1 group-hover:bg-white/92 ${
-                    status === 'active'
-                      ? 'group-hover:shadow-[0_16px_38px_rgba(234,88,12,0.22)]'
-                      : 'group-hover:shadow-[0_16px_38px_rgba(126,34,206,0.20)]'
+              {!hasGeneratedModel ? (
+                <button
+                  aria-label="上传参考照片用于生成 AI 宠物形象"
+                  className={`absolute inset-0 z-10 flex cursor-pointer justify-center rounded-[34px] text-center outline-none transition duration-300 ease-out focus-visible:ring-4 focus-visible:ring-white/80 ${
+                    modelReferenceCount > 0 ? 'items-end pb-12' : 'items-center'
                   }`}
+                  onClick={() => {
+                    if (!isModelReferencePanelOpen) {
+                      setIsModelReferencePanelOpen(true)
+                    }
+                  }}
+                  type="button"
                 >
-                  <span className={`block text-sm font-black ${theme.accentText}`}>
-                    {modelReferenceCount > 0
-                      ? `已上传 ${modelReferenceCount} 张参考图`
-                      : '点击生成 AI 宠物形象'}
+                  <span
+                    className={`rounded-full border border-white/80 bg-white/76 px-5 py-3 shadow-[0_14px_34px_rgba(87,66,40,0.16)] backdrop-blur transition duration-300 ease-out group-hover:-translate-y-1 group-hover:bg-white/92 ${
+                      status === 'active'
+                        ? 'group-hover:shadow-[0_16px_38px_rgba(234,88,12,0.22)]'
+                        : 'group-hover:shadow-[0_16px_38px_rgba(126,34,206,0.20)]'
+                    }`}
+                  >
+                    <span className={`block text-sm font-black ${theme.accentText}`}>
+                      {modelReferenceCount > 0
+                        ? `已上传 ${modelReferenceCount} 张参考图`
+                        : '点击生成 AI 宠物形象'}
+                    </span>
+                    <span className="mt-1 block text-xs font-bold text-stone-500">
+                      {modelReferenceCount === 0
+                        ? '建议上传 2–3 张清晰照片'
+                        : modelReferenceCount >= maxModelReferenceImages
+                          ? '管理照片'
+                          : '继续添加 / 管理照片'}
+                    </span>
                   </span>
-                  <span className="mt-1 block text-xs font-bold text-stone-500">
-                    {modelReferenceCount === 0
-                      ? '建议上传 2–3 张清晰照片'
-                      : modelReferenceCount >= maxModelReferenceImages
-                        ? '管理照片'
-                        : '继续添加 / 管理照片'}
-                  </span>
-                </span>
-              </button>
+                </button>
+              ) : null}
               <div
                 className={`absolute left-1/2 top-1/2 z-30 w-[min(372px,90%)] -translate-x-1/2 -translate-y-1/2 ${
                   isModelReferencePanelOpen
@@ -1272,12 +1373,12 @@ const CreatePet = () => {
                       {modelReferenceImages.map((image, index) => (
                         <div
                           className="group/thumb relative overflow-hidden rounded-2xl border border-white/80 bg-white shadow-inner"
-                          key={image}
+                          key={image.id}
                         >
                           <img
                             alt={`AI形象参考图 ${index + 1}`}
                             className="h-20 w-full object-cover"
-                            src={image}
+                            src={image.dataUrl}
                           />
                           <button
                             className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/50 text-xs font-black text-white opacity-90 transition hover:bg-black/65"
@@ -1292,8 +1393,13 @@ const CreatePet = () => {
                   ) : null}
 
                   <div className="mt-4 flex items-center justify-between gap-3">
-                    <p className="min-w-0 text-xs font-bold leading-5 text-stone-400">
-                      最多上传 3 张，支持 JPG / PNG / WEBP
+                    <p
+                      className={`min-w-0 text-xs font-bold leading-5 ${
+                        modelReferenceError ? 'text-rose-400' : 'text-stone-400'
+                      }`}
+                    >
+                      {modelReferenceError ||
+                        '最多上传 3 张，支持 JPG / PNG / WEBP，单张不超过 20MB'}
                     </p>
                     <button
                       className={`h-10 shrink-0 rounded-full px-5 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 ${
@@ -1326,7 +1432,12 @@ const CreatePet = () => {
           <div className="relative -top-[60px] space-y-3">
             <OptionCard
               className="flex min-h-[76px] flex-col justify-center"
-              icon={cardIcons.uploadAvatar}
+              icon={avatarPreview || cardIcons.uploadAvatar}
+              iconImageClassName={
+                avatarPreview
+                  ? 'h-full w-full select-none rounded-2xl object-cover'
+                  : undefined
+              }
               onClick={() => fileInputRef.current?.click()}
               subtitle={avatarPreview ? '已选择一张头像' : '记录可爱的模样'}
               tone={theme}
@@ -1522,6 +1633,12 @@ const CreatePet = () => {
           </div>
         </div>
       ) : null}
+
+      <AIModelGenerationModal
+        isOpen={isGenerationModalOpen}
+        onComplete={handleGenerationComplete}
+        status={status}
+      />
     </section>
   )
 }
